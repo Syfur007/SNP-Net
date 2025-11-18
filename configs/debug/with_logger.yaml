@@ -1,0 +1,32 @@
+# @package _global_
+
+# debugging setup with logger enabled
+# useful for quick testing while still logging to wandb
+
+# overwrite task name so debugging logs are stored in separate folder
+task_name: "debug"
+
+# Keep callbacks and loggers enabled (unlike default debug)
+# callbacks will use the experiment's callback config
+# logger will use the experiment's logger config
+
+extras:
+  ignore_warnings: False
+  enforce_tags: False
+
+# sets level of all command line loggers to 'DEBUG'
+hydra:
+  job_logging:
+    root:
+      level: DEBUG
+
+trainer:
+  max_epochs: 3  # Just run 3 epochs for quick testing
+  detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
+  limit_train_batches: 10  # Only use 10 batches per epoch
+  limit_val_batches: 5     # Only use 5 validation batches
+  limit_test_batches: 5    # Only use 5 test batches
+
+data:
+  num_workers: 2  # Reduce workers for faster debugging
+  pin_memory: False

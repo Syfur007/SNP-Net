@@ -105,6 +105,163 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
+@task_wrapper
+def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Train model with k-fold cross validation.
+
+    :param cfg: DictConfig configuration composed by Hydra.
+    :return: Tuple with aggregated metrics and dict with all instantiated objects.
+    """
+    # Ensure num_folds is set in config
+    if cfg.data.get("num_folds") is None or cfg.data.num_folds <= 1:
+        raise ValueError("K-fold training requires data.num_folds to be set to 2 or greater")
+    
+    # Set seed for random number generators
+    if cfg.get("seed"):
+        L.seed_everything(cfg.seed, workers=True)
+
+    num_folds = cfg.data.num_folds
+    log.info(f"\n{'=' * 80}")
+    log.info(f"Starting {num_folds}-Fold Cross Validation")
+    log.info(f"{'=' * 80}\n")
+
+    # Store results for all folds
+    all_fold_results = []
+
+    # Train on each fold
+    for fold_idx in range(num_folds):
+        log.info(f"\n{'=' * 80}")
+        log.info(f"Starting Fold {fold_idx + 1}/{num_folds}")
+        log.info(f"{'=' * 80}\n")
+
+        # Update config for current fold
+        cfg.data.current_fold = fold_idx
+        
+        # Instantiate fresh datamodule for this fold
+        log.info(f"Instantiating datamodule for fold {fold_idx}")
+        datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
+
+        # Instantiate fresh model for this fold
+        log.info(f"Instantiating model for fold {fold_idx}")
+        model: LightningModule = hydra.utils.instantiate(cfg.model)
+
+        # Instantiate fresh callbacks for this fold
+        log.info("Instantiating callbacks...")
+        callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+
+        # Instantiate fresh loggers for this fold
+        log.info("Instantiating loggers...")
+        logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
+        log.info(f"Instantiating trainer for fold {fold_idx}")
+        trainer: Trainer = hydra.utils.instantiate(
+            cfg.trainer, 
+            callbacks=callbacks, 
+            logger=logger
+        )
+
+        object_dict = {
+            "cfg": cfg,
+            "datamodule": datamodule,
+            "model": model,
+            "callbacks": callbacks,
+            "logger": logger,
+            "trainer": trainer,
+        }
+
+        if logger:
+            log.info("Logging hyperparameters!")
+            log_hyperparameters(object_dict)
+            # Log fold number
+            for lg in logger:
+                if hasattr(lg, "log_hyperparameters"):
+                    lg.log_hyperparameters({"fold": fold_idx})
+
+        if cfg.get("train"):
+            log.info(f"Starting training for fold {fold_idx}!")
+            trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+
+        train_metrics = trainer.callback_metrics.copy()
+
+        if cfg.get("test"):
+            log.info(f"Starting testing for fold {fold_idx}!")
+            ckpt_path = trainer.checkpoint_callback.best_model_path
+            if ckpt_path == "":
+                log.warning("Best ckpt not found! Using current weights for testing...")
+                ckpt_path = None
+            trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+            log.info(f"Best ckpt path: {ckpt_path}")
+
+        test_metrics = trainer.callback_metrics.copy()
+
+        # Store results for this fold
+        fold_results = {
+            "fold": fold_idx,
+            "train_metrics": train_metrics,
+            "test_metrics": test_metrics,
+        }
+        all_fold_results.append(fold_results)
+
+        log.info(f"Fold {fold_idx} completed!")
+        
+        # Clean up to free memory
+        del datamodule, model, callbacks, logger, trainer
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+    # Aggregate results across all folds
+    log.info(f"\n{'=' * 80}")
+    log.info("K-Fold Cross Validation Complete!")
+    log.info(f"{'=' * 80}\n")
+
+    # Calculate average metrics across folds
+    metric_dict = _aggregate_fold_results(all_fold_results)
+    
+    log.info("Average metrics across all folds:")
+    for key, value in metric_dict.items():
+        if isinstance(value, (int, float)):
+            log.info(f"  {key}: {value:.4f}")
+
+    return metric_dict, object_dict
+
+
+def _aggregate_fold_results(all_fold_results: List[dict]) -> dict:
+    """Aggregate metrics across all folds.
+
+    :param all_fold_results: List of dictionaries containing results for each fold.
+    :return: Dictionary with averaged metrics.
+    """
+    import torch
+
+    aggregated = {}
+    num_folds = len(all_fold_results)
+
+    # Collect all metric keys from test metrics
+    metric_keys = set()
+    for fold_result in all_fold_results:
+        metric_keys.update(fold_result["test_metrics"].keys())
+
+    # Average each metric across folds
+    for key in metric_keys:
+        values = []
+        for fold_result in all_fold_results:
+            if key in fold_result["test_metrics"]:
+                val = fold_result["test_metrics"][key]
+                if isinstance(val, torch.Tensor):
+                    val = val.item()
+                values.append(val)
+        
+        if values:
+            mean_val = sum(values) / len(values)
+            aggregated[f"avg_{key}"] = mean_val
+            
+            # Calculate standard deviation
+            if len(values) > 1:
+                variance = sum((v - mean_val) ** 2 for v in values) / len(values)
+                aggregated[f"std_{key}"] = variance ** 0.5
+
+    return aggregated
+
+
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
@@ -116,13 +273,31 @@ def main(cfg: DictConfig) -> Optional[float]:
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
 
-    # train the model
-    metric_dict, _ = train(cfg)
-
-    # safely retrieve metric value for hydra-based hyperparameter optimization
-    metric_value = get_metric_value(
-        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
-    )
+    # Check if k-fold cross validation is requested
+    use_kfold = cfg.data.get("num_folds") is not None and cfg.data.num_folds > 1
+    
+    if use_kfold:
+        log.info("K-Fold Cross Validation mode detected")
+        metric_dict, _ = train_kfold(cfg)
+        
+        # Safely retrieve metric value for hydra-based hyperparameter optimization
+        metric_value = None
+        metric_name = cfg.get("optimized_metric")
+        if metric_name:
+            # For k-fold, use averaged metric
+            avg_metric_name = f"avg_{metric_name}"
+            if avg_metric_name in metric_dict:
+                metric_value = metric_dict[avg_metric_name]
+            else:
+                log.warning(f"Metric {avg_metric_name} not found in results!")
+    else:
+        log.info("Regular training mode")
+        metric_dict, _ = train(cfg)
+        
+        # Safely retrieve metric value for hydra-based hyperparameter optimization
+        metric_value = get_metric_value(
+            metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
+        )
 
     # return optimized metric
     return metric_value

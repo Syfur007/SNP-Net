@@ -1,0 +1,76 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=snp_dense
+
+defaults:
+  - override /data: snp
+  - override /model: snp_dense
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["snp", "dense", "kfold", "case_control"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 50
+  gradient_clip_val: 1.0
+  
+# Early stopping based on validation loss
+callbacks:
+  early_stopping:
+    monitor: "val/loss"
+    patience: 10
+    mode: "min"
+  
+  model_checkpoint:
+    monitor: "val/acc"
+    mode: "max"
+    save_top_k: 1
+    save_last: false
+    filename: "epoch_{epoch:03d}_valacc_{val/acc:.4f}"
+
+model:
+  num_classes: 2
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler:
+    mode: min
+    factor: 0.5
+    patience: 5
+  net:
+    hidden_sizes: [512, 256, 128, 64]
+    output_size: 2
+    dropout: 0.3
+    use_batch_norm: true
+  compile: false
+
+data:
+  data_file: "data/snp_data.csv"
+  labels_in_last_row: true
+  batch_size: 32
+  train_val_test_split: [0.7, 0.15, 0.15]  # Test split: 15%, rest for k-fold CV
+  normalize: true
+  num_workers: 4
+  pin_memory: true
+  # K-Fold Cross Validation (set to null to disable)
+  num_folds: 5      # 5-fold cross validation
+  current_fold: 0   # Will be overridden when running multiple folds
+
+logger:
+  wandb:
+    name: "Dense-KFold5-512-256-128-64-bs32"
+    tags: ${tags}
+    group: "snp_kfold_cv"
+  aim:
+    experiment: "snp_dense"
+
+# Metric to optimize for hyperparameter tuning
+optimized_metric: "test/acc"
