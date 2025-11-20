@@ -1,10 +1,10 @@
 from typing import Tuple
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset as TorchDataset
 
 
-class SNPDataset(Dataset):
+class Dataset(TorchDataset):
     """Custom Dataset for SNP data stored in CSV format.
     
     The CSV file should have:
@@ -19,7 +19,7 @@ class SNPDataset(Dataset):
         data: torch.Tensor,
         labels: torch.Tensor,
     ) -> None:
-        """Initialize SNPDataset.
+        """Initialize Dataset.
 
         :param data: Tensor of shape (n_samples, n_features).
         :param labels: Tensor of shape (n_samples,).
@@ -38,3 +38,4 @@ class SNPDataset(Dataset):
         :return: Tuple of (sample, label).
         """
         return self.data[idx], self.labels[idx]
+

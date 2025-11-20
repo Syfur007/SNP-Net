@@ -13,7 +13,7 @@ from torchmetrics.classification import (
 )
 
 
-class SNPLitModule(LightningModule):
+class LitModule(LightningModule):
     """LightningModule for SNP (Single Nucleotide Polymorphism) classification.
 
     This module is designed for classification tasks using SNP data.
@@ -28,7 +28,7 @@ class SNPLitModule(LightningModule):
         compile: bool,
         num_classes: int = 2,
     ) -> None:
-        """Initialize a `SNPLitModule`.
+        """Initialize a `LitModule`.
 
         :param net: The model to train.
         :param optimizer: The optimizer to use for training.
@@ -308,4 +308,4 @@ class SNPLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = SNPLitModule(None, None, None, None)
+    _ = LitModule(None, None, None, None)

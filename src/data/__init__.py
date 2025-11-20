@@ -1,4 +1,3 @@
-from src.data.mnist_datamodule import MNISTDataModule
-from src.data.snp_datamodule import SNPDataModule
+from src.data.datamodule import DataModule
 
-__all__ = ["MNISTDataModule", "SNPDataModule"]
+__all__ = ["DataModule"]

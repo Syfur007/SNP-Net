@@ -1,4 +1,4 @@
-_target_: src.data.snp_datamodule.SNPDataModule
+_target_: src.data.datamodule.DataModule
 
 # ============================================
 # SNP Data CSV Format

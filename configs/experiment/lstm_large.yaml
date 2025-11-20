@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=snp_dense_deep
+# python train.py experiment=lstm_large
 
 defaults:
-  - override /data: snp
-  - override /model: snp_dense
+  - override /data: default
+  - override /model: lstm
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-# Deeper architecture variant for dense network
+# Larger LSTM variant with more capacity
 
-tags: ["snp", "dense", "deep", "case_control"]
+tags: ["lstm", "large", "case_control"]
 
 seed: 12345
 
@@ -36,35 +36,33 @@ callbacks:
 model:
   num_classes: 2
   optimizer:
-    lr: 0.001
+    lr: 0.0005  # Lower learning rate for larger model
     weight_decay: 0.0001
   scheduler:
     mode: min
     factor: 0.5
     patience: 7
   net:
-    hidden_sizes: [1024, 512, 256, 128, 64, 32]  # Deeper network
+    window_size: 100  # Larger windows
+    hidden_size: 256  # More hidden units
+    num_layers: 3     # More layers
     output_size: 2
-    dropout: 0.4  # Higher dropout for deeper network
-    use_batch_norm: true
+    dropout: 0.4
   compile: false
 
 data:
   data_file: "data/snp_data.csv"
   labels_in_last_row: true
-  batch_size: 64  # Larger batch size for stability
+  batch_size: 64
   train_val_test_split: [0.7, 0.15, 0.15]
   normalize: true
   num_workers: 4
   pin_memory: true
-  # K-Fold Cross Validation (set to null to disable)
-  num_folds: 5      # 5-fold cross validation
-  current_fold: 0   # Will be overridden when running multiple folds
 
 logger:
   wandb:
-    name: "Dense-Deep-6Layer-1024-512-256-128-64-32-bs64"
+    name: "LSTM-Large-3Layer-h256-w100-bs64"
     tags: ${tags}
-    group: "snp_classification"
+    group: "classification"
   aim:
-    experiment: "snp_dense_deep"
+    experiment: "lstm_large"

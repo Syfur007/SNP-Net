@@ -1,11 +1,11 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=snp_bilstm
+# python train.py experiment=lstm
 
 defaults:
-  - override /data: snp
-  - override /model: snp_bilstm
+  - override /data: default
+  - override /model: lstm
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
@@ -13,7 +13,7 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["snp", "bilstm", "kfold", "case_control"]
+tags: ["lstm", "kfold", "case_control"]
 
 seed: 12345
 
@@ -67,11 +67,11 @@ data:
 
 logger:
   wandb:
-    name: "BiLSTM-KFold5-2Layer-h128-w50-bs32"
+    name: "LSTM-KFold5-2Layer-h128-w50-bs32"
     tags: ${tags}
-    group: "snp_kfold_cv"
+    group: "kfold_cv"
   aim:
-    experiment: "snp_bilstm"
+    experiment: "lstm"
 
 # Metric to optimize for hyperparameter tuning
 optimized_metric: "test/acc"

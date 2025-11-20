@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 
-class SNPDenseNet(nn.Module):
+class DenseNet(nn.Module):
     """A fully-connected neural network for SNP classification."""
 
     def __init__(
@@ -13,7 +13,7 @@ class SNPDenseNet(nn.Module):
         use_batch_norm: bool = True,
         input_size: int = None,  # Optional, for backward compatibility
     ) -> None:
-        """Initialize a `SNPDenseNet` module.
+        """Initialize a `DenseNet` module.
 
         :param hidden_sizes: List of hidden layer sizes. Defaults to [512, 256, 128].
         :param output_size: The number of output classes.
@@ -83,4 +83,4 @@ class SNPDenseNet(nn.Module):
 
 
 if __name__ == "__main__":
-    _ = SNPDenseNet(input_size=1000, output_size=2)
+    _ = DenseNet(input_size=1000, output_size=2)

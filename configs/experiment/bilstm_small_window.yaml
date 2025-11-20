@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=snp_lstm_large
+# python train.py experiment=bilstm_small_window
 
 defaults:
-  - override /data: snp
-  - override /model: snp_lstm
+  - override /data: default
+  - override /model: bilstm
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-# Larger LSTM variant with more capacity
+# Bi-LSTM with smaller windows for finer-grained sequence modeling
 
-tags: ["snp", "lstm", "large", "case_control"]
+tags: ["bilstm", "small_window", "case_control"]
 
 seed: 12345
 
@@ -24,7 +24,7 @@ trainer:
 callbacks:
   early_stopping:
     monitor: "val/loss"
-    patience: 20
+    patience: 15
     mode: "min"
   
   model_checkpoint:
@@ -36,24 +36,24 @@ callbacks:
 model:
   num_classes: 2
   optimizer:
-    lr: 0.0005  # Lower learning rate for larger model
+    lr: 0.001
     weight_decay: 0.0001
   scheduler:
     mode: min
     factor: 0.5
-    patience: 7
+    patience: 5
   net:
-    window_size: 100  # Larger windows
-    hidden_size: 256  # More hidden units
-    num_layers: 3     # More layers
+    window_size: 25  # Smaller windows for more timesteps
+    hidden_size: 128
+    num_layers: 2
     output_size: 2
-    dropout: 0.4
+    dropout: 0.3
   compile: false
 
 data:
   data_file: "data/snp_data.csv"
   labels_in_last_row: true
-  batch_size: 64
+  batch_size: 32
   train_val_test_split: [0.7, 0.15, 0.15]
   normalize: true
   num_workers: 4
@@ -61,8 +61,8 @@ data:
 
 logger:
   wandb:
-    name: "LSTM-Large-3Layer-h256-w100-bs64"
+    name: "BiLSTM-SmallWindow-2Layer-h128-w25-bs32"
     tags: ${tags}
-    group: "snp_classification"
+    group: "classification"
   aim:
-    experiment: "snp_lstm_large"
+    experiment: "bilstm_small_window"

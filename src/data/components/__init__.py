@@ -1,3 +1,3 @@
-from src.data.components.snp_dataset import SNPDataset
+from src.data.components.dataset import Dataset
 
-__all__ = ["SNPDataset"]
+__all__ = ["Dataset"]

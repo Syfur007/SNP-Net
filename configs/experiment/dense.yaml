@@ -1,11 +1,11 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=snp_lstm
+# python train.py experiment=dense
 
 defaults:
-  - override /data: snp
-  - override /model: snp_lstm
+  - override /data: default
+  - override /model: dense
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
@@ -13,7 +13,7 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["snp", "lstm", "kfold", "case_control"]
+tags: ["dense", "kfold", "case_control"]
 
 seed: 12345
 
@@ -46,11 +46,10 @@ model:
     factor: 0.5
     patience: 5
   net:
-    window_size: 50  # Number of SNPs per window/chunk
-    hidden_size: 128
-    num_layers: 2
+    hidden_sizes: [512, 256, 128, 64]
     output_size: 2
     dropout: 0.3
+    use_batch_norm: true
   compile: false
 
 data:
@@ -67,11 +66,11 @@ data:
 
 logger:
   wandb:
-    name: "LSTM-KFold5-2Layer-h128-w50-bs32"
+    name: "Dense-KFold5-512-256-128-64-bs32"
     tags: ${tags}
-    group: "snp_kfold_cv"
+    group: "kfold_cv"
   aim:
-    experiment: "snp_lstm"
+    experiment: "dense"
 
 # Metric to optimize for hyperparameter tuning
 optimized_metric: "test/acc"

@@ -1,4 +1,4 @@
-_target_: src.models.snp_module.SNPLitModule
+_target_: src.models.module.LitModule
 
 # Number of classes (2 for binary case/control classification)
 num_classes: 2
@@ -17,12 +17,11 @@ scheduler:
   patience: 5
 
 net:
-  _target_: src.models.components.snp_lstm_net.SNPLSTMNet
-  window_size: 50  # Number of SNPs per window/chunk
-  hidden_size: 128
-  num_layers: 2
+  _target_: src.models.components.dense_net.DenseNet
+  hidden_sizes: [512, 256, 128, 64]
   output_size: 2
   dropout: 0.3
+  use_batch_norm: true
 
 # compile model for faster training with pytorch 2.0
 compile: false

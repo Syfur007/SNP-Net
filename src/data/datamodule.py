@@ -4,13 +4,13 @@ import numpy as np
 import pandas as pd
 import torch
 from lightning import LightningDataModule
-from torch.utils.data import DataLoader, Dataset, random_split, Subset
+from torch.utils.data import DataLoader, Dataset as TorchDataset, random_split, Subset
 from sklearn.model_selection import KFold
 
-from src.data.components.snp_dataset import SNPDataset
+from src.data.components.dataset import Dataset
 
 
-class SNPDataModule(LightningDataModule):
+class DataModule(LightningDataModule):
     """`LightningDataModule` for SNP (Single Nucleotide Polymorphism) dataset.
 
     This datamodule handles CSV files where:
@@ -184,7 +184,7 @@ class SNPDataModule(LightningDataModule):
             # Create full dataset
             print("[SNP DataModule] Creating dataset...")
             log.info("Creating dataset...")
-            full_dataset = SNPDataset(data, labels)
+            full_dataset = Dataset(data, labels)
             
             # Check if k-fold cross validation is requested
             if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
@@ -486,4 +486,4 @@ class SNPDataModule(LightningDataModule):
 
 
 if __name__ == "__main__":
-    _ = SNPDataModule()
+    _ = DataModule()
