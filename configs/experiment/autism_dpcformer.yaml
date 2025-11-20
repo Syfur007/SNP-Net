@@ -1,0 +1,76 @@
+# @package _global_
+
+# to execute this experiment run:
+# python src/train.py experiment=autism_dpcformer
+
+defaults:
+  - override /data: autism
+  - override /model: dpcformer
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# DPCformer (Deep Pheno Correlation Former) for autism classification
+# Hybrid CNN + Multi-Head Self-Attention architecture
+
+tags: ["autism", "dpcformer", "hybrid", "cnn", "transformer", "attention", "case_control"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 50
+  gradient_clip_val: 1.0
+  
+callbacks:
+  early_stopping:
+    monitor: "val/loss"
+    patience: 20
+    mode: "min"
+  
+  model_checkpoint:
+    monitor: "val/auroc"
+    mode: "max"
+    save_top_k: 3
+    save_last: true
+    filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
+
+model:
+  num_classes: 2
+  optimizer:
+    lr: 0.0005  # Lower learning rate for transformer-based models
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+  scheduler:
+    mode: min
+    factor: 0.5
+    patience: 5
+    min_lr: 1.0e-6
+  net:
+    num_snps: 225783  # Use 225783 SNPs for autism data
+    encoding_dim: 1  # Single value encoding
+    hidden_dim: 128  # Hidden dimension for attention
+    num_heads: 4  # 4 attention heads for capturing diverse patterns
+    num_cnn_layers: 3  # 3 CNN layers for local feature extraction
+    dropout: 0.3  # Dropout for regularization
+    output_size: 2
+    use_gradient_checkpointing: true
+  compile: false
+
+data:
+  data_file: "data/FinalizedAutismData.csv"
+  labels_in_last_row: true
+  batch_size: 32
+  train_val_test_split: [0.7, 0.15, 0.15]
+  normalize: true
+  num_workers: 4
+  pin_memory: true
+
+logger:
+  wandb:
+    name: "Autism-DPCformer-h128-nhead8-cnn3-snps2000-bs32"
+    tags: ${tags}
+    group: "autism_classification"
+    notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based autism prediction"
+  aim:
+    experiment: "autism_dpcformer"

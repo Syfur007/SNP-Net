@@ -1,0 +1,32 @@
+_target_: src.models.module.LitModule
+
+# Number of classes (2 for binary case/control classification)
+num_classes: 2
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0001
+  betas: [0.9, 0.999]
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.5
+  patience: 5
+  min_lr: 1.0e-6
+
+net:
+  _target_: src.models.components.dpcformer_net.DPCformerNet
+  num_snps: 1000  # Number of SNPs to use for sequence creation
+  encoding_dim: 1  # 1 for single value encoding (0, 1, 2)
+  hidden_dim: 128  # Hidden dimension for attention
+  num_heads: 8  # Number of attention heads
+  num_cnn_layers: 3  # Number of CNN layers
+  dropout: 0.3  # Dropout rate
+  output_size: 2  # Number of output classes
+
+# compile model for faster training with pytorch 2.0
+compile: false
