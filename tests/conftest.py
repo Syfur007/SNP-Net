@@ -113,44 +113,43 @@ def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def create_dummy_snp_data() -> None:
+def create_dummy_snp_data(monkeypatch) -> None:
     """Autouse fixture to monkeypatch DataModule data loading for tests.
 
-    Instead of creating files on disk, we replace `DataModule.prepare_data`
-    with a no-op and `DataModule._load_data` with a function that returns
-    small synthetic tensors. This avoids touching the filesystem in CI.
+    This fixture uses pytest's `monkeypatch` to:
+    - replace `DataModule.prepare_data` with a no-op to avoid FileNotFoundError
+    - replace `DataModule._load_data` with a function returning synthetic tensors
+    - patch `pathlib.Path.exists` to report that `data/snp_data.csv` exists
+
+    No files are created on disk; behavior is contained to the test session.
     """
-    # Delay import until fixture time
     import torch
+    import pathlib
     from src.data.datamodule import DataModule
 
     def _fake_prepare_data(self):
-        # do nothing (avoid FileNotFoundError in prepare_data)
         return None
 
     def _fake_load_data(self):
-        # Return synthetic data: (samples x features) and labels (samples,)
         n_samples = 100
         n_features = 50
         data = torch.randint(0, 3, (n_samples, n_features), dtype=torch.float32)
         labels = torch.randint(0, 2, (n_samples,), dtype=torch.long)
         return data, labels
 
-    # Apply monkeypatch
-    try:
-        import pytest as _pytest
+    # patch DataModule methods
+    monkeypatch.setattr(DataModule, "prepare_data", _fake_prepare_data)
+    monkeypatch.setattr(DataModule, "_load_data", _fake_load_data)
 
-        # Use pytest's monkeypatch fixture if available in this context
-        # since we're inside a fixture, request the built-in monkeypatch via import
-        from _pytest.monkeypatch import MonkeyPatch
+    # patch Path.exists to return True for data/snp_data.csv without creating files
+    orig_exists = pathlib.Path.exists
 
-        mp = MonkeyPatch()
-        mp.setattr(DataModule, "prepare_data", _fake_prepare_data, raising=False)
-        mp.setattr(DataModule, "_load_data", _fake_load_data, raising=False)
+    def _fake_exists(self):
+        try:
+            if str(self).endswith("data/snp_data.csv"):
+                return True
+        except Exception:
+            pass
+        return orig_exists(self)
 
-        # register finalizer to undo patches at session end
-        _pytest.fixture().request = None
-    except Exception:
-        # Fallback: set attributes directly
-        DataModule.prepare_data = _fake_prepare_data
-        DataModule._load_data = _fake_load_data
+    monkeypatch.setattr(pathlib.Path, "exists", _fake_exists)
