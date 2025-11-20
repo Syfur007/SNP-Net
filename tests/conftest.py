@@ -24,7 +24,9 @@ def cfg_train_global() -> DictConfig:
         with open_dict(cfg):
             cfg.paths.root_dir = str(rootutils.find_root(indicator=".project-root"))
             cfg.trainer.max_epochs = 1
-            cfg.trainer.limit_train_batches = 0.01
+            # Use full training set in CI/tests to avoid fractional
+            # limits resulting in <1 batch (Lightning raises MisconfigurationException).
+            cfg.trainer.limit_train_batches = 1.0
             # Use full validation/test sets in CI tests to avoid fractional
             # limits resulting in <1 batch (Lightning raises MisconfigurationException).
             cfg.trainer.limit_val_batches = 1.0
@@ -113,43 +115,49 @@ def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def create_dummy_snp_data(monkeypatch) -> None:
+def create_dummy_snp_data() -> None:
     """Autouse fixture to monkeypatch DataModule data loading for tests.
 
-    This fixture uses pytest's `monkeypatch` to:
-    - replace `DataModule.prepare_data` with a no-op to avoid FileNotFoundError
-    - replace `DataModule._load_data` with a function returning synthetic tensors
-    - patch `pathlib.Path.exists` to report that `data/snp_data.csv` exists
-
-    No files are created on disk; behavior is contained to the test session.
+    Uses a locally-created pytest.MonkeyPatch so the fixture can be session-scoped.
     """
-    import torch
-    import pathlib
-    from src.data.datamodule import DataModule
+    # Create a small deterministic CSV file that the DataModule expects.
+    # Creating a real file is necessary so child processes (ddp_spawn) can see it.
+    data_file = Path("data/snp_data.csv")
+    if not data_file.exists():
+        data_file.parent.mkdir(parents=True, exist_ok=True)
+        n_samples = 120
+        n_features = 30
 
-    def _fake_prepare_data(self):
-        return None
+        # deterministic pseudo-random generation: use numpy with fixed seed
+        rng = np.random.RandomState(12345)
+        # create features with slight signal correlated with labels
+        base = rng.randint(0, 3, size=(n_samples, n_features))
+        # define labels as parity of sum of first feature column to make task learnable
+        labels = (base.sum(axis=1) % 2).astype(int)
 
-    def _fake_load_data(self):
-        n_samples = 100
-        n_features = 50
-        data = torch.randint(0, 3, (n_samples, n_features), dtype=torch.float32)
-        labels = torch.randint(0, 2, (n_samples,), dtype=torch.long)
-        return data, labels
+        # transpose to SNPs as rows, samples as columns and append label row
+        full = np.vstack([base.T, labels.reshape(1, -1)])
 
-    # patch DataModule methods
-    monkeypatch.setattr(DataModule, "prepare_data", _fake_prepare_data)
-    monkeypatch.setattr(DataModule, "_load_data", _fake_load_data)
+        sample_names = [f"sample_{i}" for i in range(n_samples)]
+        snp_names = [f"SNP_{i}" for i in range(n_features)]
+        snp_names.append("label")
 
-    # patch Path.exists to return True for data/snp_data.csv without creating files
-    orig_exists = pathlib.Path.exists
+        with open(data_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([""] + sample_names)
+            for i, name in enumerate(snp_names):
+                writer.writerow([name] + full[i].tolist())
 
-    def _fake_exists(self):
-        try:
-            if str(self).endswith("data/snp_data.csv"):
-                return True
-        except Exception:
-            pass
-        return orig_exists(self)
+    # set deterministic seeds for reproducibility across train/resume runs
+    try:
+        import torch
 
-    monkeypatch.setattr(pathlib.Path, "exists", _fake_exists)
+        torch.manual_seed(12345)
+    except Exception:
+        pass
+    try:
+        np.random.seed(12345)
+    except Exception:
+        pass
+
+    yield None

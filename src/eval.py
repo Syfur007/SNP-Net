@@ -51,7 +51,18 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
+    # Instantiate a model object, then try to load weights from checkpoint using
+    # the class' `load_from_checkpoint` to avoid state_dict loading errors.
     model: LightningModule = hydra.utils.instantiate(cfg.model)
+    try:
+        # Attempt to load a model instance directly from checkpoint. This will
+        # construct the model using saved hyperparameters and restore weights.
+        model_cls = model.__class__
+        log.info(f"Loading model weights from checkpoint: {cfg.ckpt_path}")
+        loaded = model_cls.load_from_checkpoint(cfg.ckpt_path, map_location="cpu")
+        model = loaded
+    except Exception as e:
+        log.info(f"load_from_checkpoint failed ({e}), falling back to instantiated model and letting Trainer handle ckpt")
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
