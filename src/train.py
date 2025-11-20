@@ -277,25 +277,12 @@ def main(cfg: DictConfig) -> Optional[float]:
     if use_kfold:
         log.info("K-Fold Cross Validation mode detected")
         metric_dict, _ = train_kfold(cfg)
-        
-        # Safely retrieve metric value for hydra-based hyperparameter optimization
-        metric_value = None
-        metric_name = cfg.get("optimized_metric")
-        if metric_name:
-            # For k-fold, use averaged metric
-            avg_metric_name = f"avg_{metric_name}"
-            if avg_metric_name in metric_dict:
-                metric_value = metric_dict[avg_metric_name]
-            else:
-                log.warning(f"Metric {avg_metric_name} not found in results!")
     else:
         log.info("Regular training mode")
         metric_dict, _ = train(cfg)
-        
-        # Safely retrieve metric value for hydra-based hyperparameter optimization
-        metric_value = get_metric_value(
-            metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
-        )
+
+    # Safely retrieve metric value for hydra-based hyperparameter optimization
+    metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))
 
     # return optimized metric
     return metric_value

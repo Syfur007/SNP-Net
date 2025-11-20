@@ -106,14 +106,37 @@ def get_metric_value(metric_dict: Dict[str, Any], metric_name: Optional[str]) ->
         log.info("Metric name is None! Skipping metric value retrieval...")
         return None
 
-    if metric_name not in metric_dict:
-        raise Exception(
-            f"Metric value not found! <metric_name={metric_name}>\n"
-            "Make sure metric name logged in LightningModule is correct!\n"
-            "Make sure `optimized_metric` name in `hparams_search` config is correct!"
-        )
+    # Build candidate metric names in order of preference so callers can provide
+    # either the averaged name (e.g. "avg_test/acc") or the base name ("test/acc").
+    candidates = []
+    candidates.append(metric_name)
+    # If caller asked for non-averaged metric, prefer avg_ version next
+    if not metric_name.startswith("avg_"):
+        candidates.append(f"avg_{metric_name}")
+    else:
+        # If caller already provided avg_..., also try the non-averaged fallback
+        candidates.append(metric_name[len("avg_"):])
 
-    metric_value = metric_dict[metric_name].item()
-    log.info(f"Retrieved metric value! <{metric_name}={metric_value}>")
+    for cand in candidates:
+        if cand in metric_dict:
+            raw = metric_dict[cand]
+            # Try to extract numeric value robustly
+            try:
+                if hasattr(raw, "item"):
+                    value = raw.item()
+                else:
+                    value = float(raw)
+            except Exception:
+                # Last resort: return as-is if it's already a float/int
+                value = raw
 
-    return metric_value
+            log.info(f"Retrieved metric value! <{cand}={value}>")
+            return value
+
+    # If none of the candidates were present, raise a helpful error
+    raise Exception(
+        f"Metric value not found! <metric_name={metric_name}>\n"
+        f"Tried candidates: {candidates}\n"
+        "Make sure metric name logged in LightningModule is correct!\n"
+        "Make sure `optimized_metric` name in `hparams_search` config is correct!"
+    )
