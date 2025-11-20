@@ -1,0 +1,77 @@
+# @package _global_
+
+# to execute this experiment run:
+# python src/train.py experiment=mental_transformer_cnn
+
+defaults:
+  - override /data: mental
+  - override /model: transformer_cnn
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# Transformer-CNN (DeepPlantCRE-inspired) for mental health classification
+# Combines transformer's global context with CNN's local pattern extraction
+
+tags: ["mental", "transformer_cnn", "transformer", "cnn", "hybrid", "case_control"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 50
+  gradient_clip_val: 1.0
+  
+callbacks:
+  early_stopping:
+    monitor: "val/loss"
+    patience: 20
+    mode: "min"
+  
+  model_checkpoint:
+    monitor: "val/auroc"
+    mode: "max"
+    save_top_k: 3
+    save_last: true
+    filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
+
+model:
+  num_classes: 2
+  optimizer:
+    lr: 0.0005  # Lower learning rate for transformer-based models
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+  scheduler:
+    mode: min
+    factor: 0.5
+    patience: 5
+    min_lr: 1.0e-6
+  net:
+    num_snps: 2000  # Use 2000 SNPs for mental health data
+    encoding_dim: 1  # Single value encoding
+    d_model: 64  # Transformer embedding dimension
+    nhead: 2  # 2 attention heads for diverse patterns
+    num_transformer_layers: 2  # 2 transformer layers for context
+    cnn_channels: [64, 128, 32]  # Hierarchical CNN feature extraction
+    dropout: 0.25  # Dropout for regularization
+    output_size: 2
+    use_gradient_checkpointing: true
+  compile: false
+
+data:
+  data_file: "data/FinalizedMentalData.csv"
+  labels_in_last_row: true
+  batch_size: 32
+  train_val_test_split: [0.7, 0.15, 0.15]
+  normalize: true
+  num_workers: 4
+  pin_memory: true
+
+logger:
+  wandb:
+    name: "Mental-TransformerCNN-d64-nhead8-trans2-snps2000-bs32"
+    tags: ${tags}
+    group: "mental_classification"
+    notes: "Transformer-CNN: DeepPlantCRE-inspired hybrid combining global transformer context with hierarchical CNN features"
+  aim:
+    experiment: "mental_transformer_cnn"
