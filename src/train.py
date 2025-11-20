@@ -133,13 +133,11 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info(f"\n{'=' * 80}")
         log.info(f"Starting Fold {fold_idx + 1}/{num_folds}")
         log.info(f"{'=' * 80}\n")
-
-        # Update config for current fold
-        cfg.data.current_fold = fold_idx
         
-        # Instantiate fresh datamodule for this fold
+        # Instantiate fresh datamodule for this fold with the current fold index
+        # We must override current_fold during instantiation, not by modifying cfg
         log.info(f"Instantiating datamodule for fold {fold_idx}")
-        datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
+        datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data, current_fold=fold_idx)
 
         # Instantiate fresh model for this fold
         log.info(f"Instantiating model for fold {fold_idx}")
