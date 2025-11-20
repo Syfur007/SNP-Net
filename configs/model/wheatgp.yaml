@@ -1,0 +1,33 @@
+_target_: src.models.module.LitModule
+
+# Number of classes (2 for binary case/control classification)
+num_classes: 2
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0001
+  betas: [0.9, 0.999]
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.5
+  patience: 5
+  min_lr: 1.0e-6
+
+net:
+  _target_: src.models.components.wheatgp_net.WheatGPNet
+  num_snps: 1000  # Number of SNPs to use for sequence creation
+  encoding_dim: 1  # 1 for single value encoding (0, 1, 2)
+  cnn_channels: [64, 128, 256]  # CNN channel dimensions
+  lstm_hidden: 128  # LSTM hidden dimension
+  lstm_layers: 2  # Number of LSTM layers
+  dropout: 0.3  # Dropout rate
+  output_size: 2  # Number of output classes
+  use_gradient_checkpointing: false  # Enable to save memory
+
+# compile model for faster training with pytorch 2.0
+compile: false

@@ -1,25 +1,25 @@
 # @package _global_
 
 # to execute this experiment run:
-# python src/train.py experiment=autism_dpcformer
+# python src/train.py experiment=autism_wheatgp
 
 defaults:
   - override /data: autism
-  - override /model: dpcformer
+  - override /model: wheatgp
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-# DPCformer (Deep Pheno Correlation Former) for autism classification
-# Hybrid CNN + Multi-Head Self-Attention architecture
+# WheatGP (CNN-LSTM) for autism classification
+# Best for capturing epistatic effects between distant SNPs
 
-tags: ["autism", "dpcformer", "hybrid", "cnn", "transformer", "attention", "case_control"]
+tags: ["autism", "wheatgp", "cnn", "lstm", "epistatic", "case_control"]
 
 seed: 12345
 
 trainer:
   min_epochs: 10
-  max_epochs: 50
+  max_epochs: 100
   gradient_clip_val: 1.0
   
 callbacks:
@@ -38,7 +38,7 @@ callbacks:
 model:
   num_classes: 2
   optimizer:
-    lr: 0.0005  # Lower learning rate for transformer-based models
+    lr: 0.001
     weight_decay: 0.0001
     betas: [0.9, 0.999]
   scheduler:
@@ -49,12 +49,12 @@ model:
   net:
     num_snps: 2000  # Use 2000 SNPs for autism data
     encoding_dim: 1  # Single value encoding
-    hidden_dim: 128  # Hidden dimension for attention
-    num_heads: 4  # 4 attention heads for capturing diverse patterns
-    num_cnn_layers: 3  # 3 CNN layers for local feature extraction
+    cnn_channels: [64, 128, 256]  # Multi-scale CNN feature extraction
+    lstm_hidden: 128  # LSTM hidden dimension for long-range dependencies
+    lstm_layers: 2  # 2-layer LSTM for complex patterns
     dropout: 0.3  # Dropout for regularization
     output_size: 2
-    use_gradient_checkpointing: true
+    use_gradient_checkpointing: false
   compile: false
 
 data:
@@ -68,9 +68,9 @@ data:
 
 logger:
   wandb:
-    name: "Autism-DPCformer-h128-nhead8-cnn3-snps2000-bs32"
+    name: "Autism-WheatGP-cnn256-lstm128-snps2000-bs32"
     tags: ${tags}
     group: "autism_classification"
-    notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based autism prediction"
+    notes: "WheatGP: CNN-LSTM hybrid for capturing local patterns and long-range epistatic effects in SNP data"
   aim:
-    experiment: "autism_dpcformer"
+    experiment: "autism_wheatgp"
