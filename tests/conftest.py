@@ -1,7 +1,9 @@
 """This file prepares config fixtures for other tests."""
 
+import csv
 from pathlib import Path
 
+import numpy as np
 import pytest
 import rootutils
 from hydra import compose, initialize
@@ -105,3 +107,49 @@ def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
     yield cfg
 
     GlobalHydra.instance().clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def create_dummy_snp_data() -> None:
+    """Create a dummy SNP data CSV file for testing if it doesn't exist.
+    
+    This fixture is automatically used by all tests and creates a minimal
+    SNP data CSV file with 100 samples and 50 features for testing purposes.
+    """
+    data_file = Path("data/snp_data.csv")
+    
+    # Only create if it doesn't exist
+    if data_file.exists():
+        return
+    
+    # Create data directory
+    data_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create dummy SNP data
+    # Format: rows are SNPs (features), columns are samples
+    # Last row contains labels (case/control)
+    n_samples = 100
+    n_features = 50
+    
+    # Generate random SNP data (0, 1, 2)
+    data = np.random.randint(0, 3, size=(n_features, n_samples))
+    
+    # Generate random labels (case=1, control=0)
+    labels = np.random.randint(0, 2, size=n_samples)
+    
+    # Combine data with labels as last row
+    full_data = np.vstack([data, labels])
+    
+    # Create sample names (columns) and SNP names (rows)
+    sample_names = [f"sample_{i}" for i in range(n_samples)]
+    snp_names = [f"SNP_{i}" for i in range(n_features)]
+    snp_names.append("label")
+    
+    # Write to CSV
+    with open(data_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        # Header with sample names
+        writer.writerow([""] + sample_names)
+        # Data rows with SNP names
+        for i, snp_name in enumerate(snp_names):
+            writer.writerow([snp_name] + full_data[i].tolist())
