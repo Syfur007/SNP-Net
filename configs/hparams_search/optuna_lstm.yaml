@@ -1,0 +1,54 @@
+# @package _global_
+# Hyperparameter optimization specifically tuned for LSTM/BiLSTM networks
+
+defaults:
+  - override /hydra/sweeper: optuna
+
+optimized_metric: "avg_test/acc"
+
+hydra:
+  mode: "MULTIRUN"
+
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    
+    storage: null  # Change to "sqlite:///optuna_lstm.db" to persist
+    study_name: "snp_lstm_optimization"
+    
+    direction: maximize
+    n_trials: 40
+    n_jobs: 1
+
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+      n_startup_trials: 12
+      parzen_estimator_include_prior: true
+      parzen_estimator_prior_weight: 1.0
+
+    params:
+      # LSTMs are sensitive to learning rate
+      model.optimizer.lr: interval(0.0001, 0.005)
+      model.optimizer.weight_decay: interval(0.00001, 0.001)
+      
+      # Dropout in LSTMs helps prevent co-adaptation
+      model.net.dropout: interval(0.2, 0.4)
+      
+      # Batch size affects LSTM state management
+      data.batch_size: choice(16, 32, 48)
+      
+      # LSTMs benefit from patient learning rate scheduling
+      model.scheduler.patience: choice(5, 8, 10, 12)
+      model.scheduler.factor: choice(0.3, 0.5)
+      
+      # LSTM-specific parameters
+      # Hidden size: Larger = more complex patterns but slower
+      model.net.hidden_size: choice(64, 128, 256)
+      
+      # Number of stacked LSTM layers
+      # More layers = deeper feature hierarchy but harder to train
+      model.net.num_layers: choice(1, 2, 3)
+      
+      # Sliding window size for sequence processing
+      # Larger window = longer-range SNP interactions
+      model.net.window_size: choice(25, 50, 100)

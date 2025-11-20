@@ -1,0 +1,50 @@
+# @package _global_
+# Hyperparameter optimization specifically tuned for DENSE networks
+
+defaults:
+  - override /hydra/sweeper: optuna
+
+optimized_metric: "avg_test/acc"
+
+hydra:
+  mode: "MULTIRUN"
+
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    
+    storage: null  # Change to "sqlite:///optuna_dense.db" to persist
+    study_name: "snp_dense_optimization"
+    
+    direction: maximize
+    n_trials: 40
+    n_jobs: 1
+
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+      n_startup_trials: 12
+      parzen_estimator_include_prior: true
+      parzen_estimator_prior_weight: 1.0
+
+    params:
+      # Dense networks benefit from good learning rate tuning
+      model.optimizer.lr: interval(0.0001, 0.01)
+      model.optimizer.weight_decay: interval(0.00001, 0.001)
+      
+      # Dropout is crucial for preventing overfitting in dense networks
+      model.net.dropout: interval(0.2, 0.5)
+      
+      # Batch size affects training stability
+      data.batch_size: choice(16, 32, 64)
+      
+      # Scheduler tuning for stable convergence
+      model.scheduler.patience: choice(5, 8, 10)
+      model.scheduler.factor: choice(0.3, 0.5, 0.7)
+      
+      # Architecture: try different layer configurations
+      # Larger networks for bigger datasets, smaller for tiny datasets
+      model.net.hidden_sizes: choice(
+        [256, 128, 64],      # Moderate - good starting point
+        [128, 64, 32],       # Small - for small datasets
+        [512, 256, 128, 64]  # Large - for large datasets
+      )

@@ -1,0 +1,61 @@
+# @package _global_
+# Hyperparameter optimization specifically tuned for Transformer-CNN networks
+
+defaults:
+  - override /hydra/sweeper: optuna
+
+optimized_metric: "avg_test/acc"
+
+hydra:
+  mode: "MULTIRUN"
+
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    
+    storage: null  # Change to "sqlite:///optuna_transformer_cnn.db" to persist
+    study_name: "snp_transformer_cnn_optimization"
+    
+    direction: maximize
+    n_trials: 50  # More trials for complex model
+    n_jobs: 1
+
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+      n_startup_trials: 15
+      parzen_estimator_include_prior: true
+      parzen_estimator_prior_weight: 1.0
+
+    params:
+      # Transformers need LOWER learning rates than CNNs/LSTMs
+      # Attention mechanism is sensitive to overshooting
+      model.optimizer.lr: interval(0.00005, 0.001)
+      model.optimizer.weight_decay: interval(0.00001, 0.0005)
+      
+      # Dropout for attention regularization
+      model.net.dropout: interval(0.15, 0.35)
+      
+      # Smaller batch sizes for transformer stability
+      data.batch_size: choice(16, 32, 48)
+      
+      # Transformer-specific scheduler settings
+      model.scheduler.patience: choice(8, 10, 12)
+      model.scheduler.factor: choice(0.3, 0.5, 0.7)
+      
+      # ===== TRANSFORMER PARAMETERS =====
+      # Embedding dimension: size of attention feature space
+      # Larger = richer representations but slower
+      model.net.d_model: choice(32, 64, 128)
+      
+      # Number of attention heads: parallel attention patterns
+      # More heads = diverse pattern learning but more parameters
+      model.net.nhead: choice(2, 4, 8)
+      
+      # Number of transformer layers: depth of feature extraction
+      # Deeper = more complex patterns but harder to train
+      model.net.num_transformer_layers: choice(1, 2, 3)
+      
+      # ===== CNN PARAMETERS =====
+      # CNN learns local SNP patterns (useful for genomic data)
+      # Channel progression: [input_channels, hidden1, hidden2, hidden3]
+      # The hybrid approach combines global (transformer) + local (cnn) patterns

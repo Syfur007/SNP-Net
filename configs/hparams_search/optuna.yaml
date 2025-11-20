@@ -1,61 +1,147 @@
 # @package _global_
 
-# example hyperparameter optimization with Optuna:
-# python train.py -m hparams_search=optuna experiment=dense
+# ============================================================
+# OPTUNA HYPERPARAMETER OPTIMIZATION FOR SNP CLASSIFICATION
+# ============================================================
+#
+# This configuration performs Bayesian optimization using Optuna
+# to find optimal hyperparameters for SNP classification models.
+#
+# The optimization targets test accuracy across multiple models
+# and datasets (autism/mental health classification).
+#
+# ============================================================
 
 defaults:
   - override /hydra/sweeper: optuna
 
-# choose metric which will be optimized by Optuna
-# make sure this is the correct name of some metric logged in lightning module!
-optimized_metric: "avg_test/acc"  # Using averaged test accuracy across folds for k-fold CV
+# Metric to optimize - choose based on your priority:
+# - "test/acc": Single run accuracy (faster)
+# - "avg_test/acc": K-fold cross-validation accuracy (more robust, recommended)
+# - "test/auroc": AUROC for imbalanced datasets (better for case/control data)
+optimized_metric: "avg_test/acc"
 
-# here we define Optuna hyperparameter search
-# it optimizes for value returned from function with @hydra.main decorator
-# docs: https://hydra.cc/docs/next/plugins/optuna_sweeper
+# ============================================================
+# OPTUNA HYPERPARAMETER SEARCH CONFIGURATION
+# ============================================================
+# Bayesian optimization finds optimal hyperparameters by:
+# 1. Running random trials (n_startup_trials)
+# 2. Building a surrogate model of performance landscape
+# 3. Proposing new parameters likely to improve performance
+# 4. Repeating until n_trials complete
+#
+# Docs: https://hydra.cc/docs/next/plugins/optuna_sweeper
+# ============================================================
+
 hydra:
-  mode: "MULTIRUN" # set hydra to multirun by default if this config is attached
+  mode: "MULTIRUN"  # Required for Optuna sweeper
 
   sweeper:
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
 
-    # storage URL to persist optimization results
-    # for example, you can use SQLite if you set 'sqlite:///optuna.db'
-    storage: null
+    # ========== STORAGE & PERSISTENCE ==========
+    # Store optimization history in SQLite for resuming interrupted searches
+    # Leave as null to use in-memory storage (lost after run)
+    storage: null  # Change to "sqlite:///optuna_snp_optimization.db" to persist
+    study_name: "snp_hyperparameter_optimization"
 
-    # name of the study to persist optimization results
-    study_name: hyperparameter_optimization
-
-    # number of parallel workers
+    # ========== OPTIMIZATION SETTINGS ==========
+    # Maximize accuracy (if using loss, set to "minimize")
+    direction: maximize
+    
+    # Total training runs to execute
+    # ~30-50 is good for small hyperparameter spaces, 100+ for larger spaces
+    n_trials: 40
+    
+    # Parallel workers (set > 1 for distributed optimization)
+    # WARNING: Only set n_jobs > 1 if you have sufficient GPU memory
+    # Each job runs a separate training process
     n_jobs: 1
 
-    # 'minimize' or 'maximize' the objective
-    direction: maximize
-
-    # total number of runs that will be executed
-    n_trials: 30
-
-    # choose Optuna hyperparameter sampler
-    # you can choose bayesian sampler (tpe), random search (without optimization), grid sampler, and others
-    # docs: https://optuna.readthedocs.io/en/stable/reference/samplers.html
+    # ========== BAYESIAN OPTIMIZATION SAMPLER ==========
+    # TPE (Tree-structured Parzen Estimator) = Bayesian optimization
+    # - Learns from past trials to propose better parameters
+    # - Superior to random search and grid search
     sampler:
       _target_: optuna.samplers.TPESampler
-      seed: 12345
-      n_startup_trials: 10 # number of random sampling runs before optimization starts
+      seed: 42  # Set seed for reproducible optimization
+      # Random exploration phase: establishes baseline before optimization
+      n_startup_trials: 12  # ~30% of n_trials for exploration
+      # Parzen estimator parameters (advanced tuning)
+      parzen_estimator_include_prior: true
+      parzen_estimator_prior_weight: 1.0
 
-    # define hyperparameter search space
+    # ========== HYPERPARAMETER SEARCH SPACE ==========
+    # Each parameter defines a range or choices to explore
+    # 
+    # Parameter types:
+    # - interval(min, max): Continuous range
+    # - int_interval(min, max): Integer range  
+    # - choice(...): Discrete options
+    #
+    # Selection strategy:
+    # 1. Learning Rate (LR): MOST IMPORTANT - controls training speed
+    # 2. Regularization (dropout, weight_decay): Prevents overfitting
+    # 3. Batch size: Affects stability and convergence
+    # 4. Model capacity: Layer sizes, hidden dimensions
+    # 5. Training dynamics: Scheduler patience, gradient clipping
+    
     params:
-      # Optimizer learning rate
-      model.optimizer.lr: interval(0.0001, 0.01)
+      # ===== CRITICAL: LEARNING RATE =====
+      # LR is the single most important hyperparameter
+      # Too high: Training diverges, loss becomes NaN/Inf
+      # Too low: Slow convergence, stuck in local minima
+      # Typical SNP models: 0.0005 - 0.002
+      model.optimizer.lr: interval(0.0001, 0.005)
+      
+      # ===== REGULARIZATION: L2 PENALTY =====
+      # Penalizes large weights to prevent overfitting
+      # Higher values = stronger regularization (smaller weights)
+      # Typical: 0.00001 - 0.001
       model.optimizer.weight_decay: interval(0.00001, 0.001)
       
-      # Batch size
-      data.batch_size: choice(16, 32, 64, 128)
+      # ===== REGULARIZATION: DROPOUT =====
+      # Randomly disables neurons (0-100% probability) during training
+      # Prevents co-adaptation, improves generalization
+      # For SNP data (typically <1000 samples): 0.2-0.4 recommended
+      model.net.dropout: interval(0.15, 0.45)
       
-      # Model architecture (for dense networks)
-      # model.net.hidden_sizes: choice([512, 256, 128], [256, 128, 64], [1024, 512, 256, 128])
-      model.net.dropout: interval(0.1, 0.5)
+      # ===== BATCH SIZE =====
+      # Samples per gradient update
+      # Small (16): Noisy gradients, harder to train but faster iterations
+      # Large (128): Smoother gradients, slower iterations but more stable
+      # SNP classification: 16-64 typical (memory-constrained)
+      data.batch_size: choice(16, 32, 48, 64)
       
-      # Scheduler parameters
-      model.scheduler.patience: choice(3, 5, 7, 10)
+      # ===== LR SCHEDULER: REDUCTION PATIENCE =====
+      # If validation loss plateaus, wait N epochs then reduce LR
+      # Lower patience: Aggressive LR reduction, faster adaptation
+      # Higher patience: Conservative, allows longer plateaus
+      # Typical: 3-10 epochs
+      model.scheduler.patience: choice(4, 6, 8, 10)
+      
+      # ===== LR SCHEDULER: REDUCTION FACTOR =====
+      # Multiply LR by this factor when loss plateaus
+      # 0.5: Halve LR (moderate reduction)
+      # 0.3: Divide by 3 (aggressive reduction)
+      # 0.7: Slight reduction (conservative)
       model.scheduler.factor: choice(0.3, 0.5, 0.7)
+      
+      # ===== OPTIONAL: UNCOMMENT FOR DENSE NETWORKS ONLY =====
+      # Architecture selection for dense networks
+      # Larger networks: More capacity but risk overfitting
+      # Smaller networks: Regularization through capacity reduction
+      # model.net.hidden_sizes: choice([256, 128, 64], [128, 64, 32], [512, 256, 128, 64])
+      
+      # ===== OPTIONAL: UNCOMMENT FOR SEQUENCE MODELS (LSTM/BiLSTM) =====
+      # Sliding window size for LSTM/BiLSTM - how many SNPs per sequence
+      # Larger windows: Longer-range SNP interactions but higher compute
+      # Smaller windows: Local patterns only but faster
+      # model.net.hidden_size: choice(64, 128, 256)  # LSTM hidden dimension
+      # model.net.num_layers: choice(1, 2, 3)  # Stack depth
+      
+      # ===== OPTIONAL: UNCOMMENT FOR TRANSFORMER-CNN ONLY =====
+      # Transformer parameters for hybrid models
+      # model.net.d_model: choice(32, 64, 128)  # Embedding dimension
+      # model.net.nhead: choice(2, 4, 8)  # Attention heads
+      # model.net.num_transformer_layers: choice(1, 2, 3)  # Transformer depth
