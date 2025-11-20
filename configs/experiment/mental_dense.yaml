@@ -1,0 +1,65 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=mental_dense
+
+defaults:
+  - override /data: mental
+  - override /model: dense
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# Dense neural network for mental health classification
+
+tags: ["mental", "dense", "case_control"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 100
+  gradient_clip_val: 0.5
+  
+callbacks:
+  early_stopping:
+    monitor: "val/loss"
+    patience: 15
+    mode: "min"
+  
+  model_checkpoint:
+    monitor: "val/acc"
+    mode: "max"
+    save_top_k: 3
+    save_last: true
+
+model:
+  num_classes: 2
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler:
+    mode: min
+    factor: 0.5
+    patience: 5
+  net:
+    hidden_sizes: [256, 128, 64]
+    dropout: 0.3
+  compile: false
+
+data:
+  data_file: "data/FinalizedMentalData.csv"
+  labels_in_last_row: true
+  batch_size: 32
+  train_val_test_split: [0.7, 0.15, 0.15]
+  normalize: true
+  num_workers: 4
+  pin_memory: true
+
+logger:
+  wandb:
+    name: "Mental-Dense-3Layer-bs32"
+    tags: ${tags}
+    group: "mental_classification"
+  aim:
+    experiment: "mental_dense"
