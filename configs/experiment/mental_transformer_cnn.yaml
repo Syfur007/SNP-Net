@@ -69,7 +69,7 @@ data:
 
 logger:
   wandb:
-    name: "Mental-TransformerCNN-d64-nhead8-trans2-snps2000-bs32"
+    name: "Mental-TransformerCNN-d64-nhead2-trans2-snps2000-bs32"
     tags: ${tags}
     group: "mental_classification"
     notes: "Transformer-CNN: DeepPlantCRE-inspired hybrid combining global transformer context with hierarchical CNN features"

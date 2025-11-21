@@ -69,7 +69,7 @@ data:
 
 logger:
   wandb:
-    name: "Autism-TransformerCNN-d64-nhead8-trans2-snps2000-bs32"
+    name: "Autism-TransformerCNN-d64-nhead2-trans2-snps2000-bs32"
     tags: ${tags}
     group: "autism_classification"
     notes: "Transformer-CNN: DeepPlantCRE-inspired hybrid combining global transformer context with hierarchical CNN features"

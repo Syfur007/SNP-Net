@@ -68,7 +68,7 @@ data:
 
 logger:
   wandb:
-    name: "Autism-DPCformer-h128-nhead8-cnn3-snps2000-bs32"
+    name: "Autism-DPCformer-h128-nhead4-cnn3-snps2000-bs32"
     tags: ${tags}
     group: "autism_classification"
     notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based autism prediction"

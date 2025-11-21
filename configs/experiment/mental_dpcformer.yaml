@@ -68,7 +68,7 @@ data:
 
 logger:
   wandb:
-    name: "Mental-DPCformer-h128-nhead8-cnn3-snps2000-bs32"
+    name: "Mental-DPCformer-h128-nhead4-cnn3-snps2000-bs32"
     tags: ${tags}
     group: "mental_classification"
     notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based mental health prediction"
