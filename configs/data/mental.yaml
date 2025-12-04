@@ -46,3 +46,29 @@ has_header: true
 
 # Whether the CSV has an index column (SNP/feature names)
 has_index: true
+
+# Feature Selection (optional)
+# Set to null to disable, or configure for feature selection
+# Examples: amgm, cosine, variance, mutual_info, l1, pipeline
+feature_selection: null
+# Example: Select top 100 features using mutual information
+# feature_selection:
+#   method: mutual_info
+#   k: 100
+#   random_state: 42
+#
+# Example: Multi-stage pipeline (reduce from many features)
+# feature_selection:
+#   method: pipeline
+#   stages:
+#     - name: variance_prefilter
+#       method: variance
+#       k: 10000
+#     - name: mi_selection
+#       method: mutual_info
+#       k: 500
+#       random_state: 42
+#     - name: final_selection
+#       method: cosine
+#       k: 100
+#       threshold: 0.9

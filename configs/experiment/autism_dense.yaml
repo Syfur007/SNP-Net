@@ -55,10 +55,22 @@ data:
   normalize: true
   num_workers: 4
   pin_memory: true
+  # feature_selection:
+  #   method: pipeline
+  #   stages:
+  #     - name: initial_filter
+  #       method: amgm
+  #       k: 5000
+  #       mode: ratio
+  #     - name: redundancy_removal
+  #       method: cosine
+  #       k: 1000
+  #       threshold: 0.95
+
 
 logger:
   wandb:
-    name: "Autism-Dense-3Layer-bs32"
+    name: "Autism-Dense-3Layer-bs32-AMGM-CosineFS"
     tags: ${tags}
     group: "autism_classification"
   aim:

@@ -67,6 +67,8 @@ class DataModule(LightningDataModule):
         # K-Fold parameters (optional)
         num_folds: Optional[int] = None,
         current_fold: int = 0,
+        # Feature selection parameters (optional)
+        feature_selection: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize a `SNPDataModule`.
 
@@ -83,6 +85,10 @@ class DataModule(LightningDataModule):
         :param has_index: Whether the CSV file has an index column (SNP names). Defaults to True.
         :param num_folds: Number of folds for k-fold cross validation. If None, uses regular train/val/test split. Defaults to None.
         :param current_fold: Current fold index for k-fold CV (0 to num_folds-1). Defaults to 0.
+        :param feature_selection: Optional feature selection configuration dict with keys:
+            - method: str (amgm, cosine, variance, mutual_info, l1)
+            - k: int (number of features to select)
+            - Additional method-specific parameters (threshold, mode, C, etc.)
         """
         super().__init__()
 
@@ -105,6 +111,11 @@ class DataModule(LightningDataModule):
         self.test_dataset: Optional[Dataset] = None
         self.kfold: Optional[KFold] = None
         self.fold_indices: Optional[list] = None
+        
+        # Feature selection attributes
+        self._selected_indices: Optional[np.ndarray] = None
+        self._feature_scores: Optional[np.ndarray] = None
+        self._feature_stages: Optional[list] = None  # For pipeline selection
 
     @property
     def num_classes(self) -> int:
@@ -180,6 +191,14 @@ class DataModule(LightningDataModule):
                 data, self.mean, self.std = self._normalize_data(data)
                 print("[SNP DataModule] ✓ Data normalization complete")
                 log.info("Data normalization complete.")
+            
+            # Apply feature selection if requested
+            if self.hparams.feature_selection is not None:
+                print(f"[SNP DataModule] Applying feature selection: {self.hparams.feature_selection.get('method', 'unknown')}...")
+                log.info(f"Applying feature selection: {self.hparams.feature_selection}")
+                data, self._selected_indices, self._feature_scores = self._select_features(data, labels)
+                print(f"[SNP DataModule] ✓ Feature selection complete. Selected {len(self._selected_indices)} features from {data.shape[1]}")
+                log.info(f"Feature selection complete. Selected {len(self._selected_indices)} features.")
             
             # Create full dataset
             print("[SNP DataModule] Creating dataset...")
@@ -267,6 +286,66 @@ class DataModule(LightningDataModule):
         self.data_train = Subset(self.trainval_dataset, train_idx.tolist())
         self.data_val = Subset(self.trainval_dataset, val_idx.tolist())
         self.data_test = self.test_dataset
+
+    def _select_features(
+        self, data: torch.Tensor, labels: torch.Tensor
+    ) -> Tuple[torch.Tensor, np.ndarray, np.ndarray]:
+        """Apply feature selection to the data.
+        
+        :param data: Input data tensor of shape (n_samples, n_features).
+        :param labels: Label tensor of shape (n_samples,).
+        :return: Tuple of (selected_data, selected_indices, scores).
+        """
+        from src.data.feature_selection import select_features
+        
+        if self.hparams.feature_selection is None:
+            raise RuntimeError("feature_selection not configured.")
+        
+        # Extract configuration and convert from OmegaConf if needed
+        from omegaconf import OmegaConf
+        config = self.hparams.feature_selection
+        if OmegaConf.is_config(config):
+            config = OmegaConf.to_container(config, resolve=True)
+        
+        method = config.get('method')
+        if method is None:
+            raise ValueError("feature_selection config must include 'method' key.")
+        
+        # For pipeline method, handle stages
+        if method.lower() == 'pipeline':
+            stages = config.get('stages')
+            if stages is None:
+                raise ValueError("Pipeline method requires 'stages' key in feature_selection config.")
+            
+            # Create container for stage info
+            stage_info = []
+            method_params = {'stages': stages, '_stage_info_out': stage_info}
+            
+            # Apply pipeline selection
+            selected_data, selected_indices, scores = select_features(
+                data, labels, method, **method_params
+            )
+            
+            # Store stage information
+            self._feature_stages = stage_info
+            
+        else:
+            # Single-stage selection (existing behavior)
+            # Extract k and other params
+            k = config.get('k', None)
+            
+            # Get method-specific parameters
+            method_params = {key: val for key, val in config.items() 
+                            if key not in ['method', 'k']}
+            
+            # Apply selection
+            selected_data, selected_indices, scores = select_features(
+                data, labels, method, k=k, **method_params
+            )
+            
+            self._feature_stages = None  # Not a pipeline
+        
+        return selected_data, selected_indices, scores
 
     def _load_data(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Load SNP data from CSV file.
@@ -465,6 +544,15 @@ class DataModule(LightningDataModule):
             state['num_classes'] = self._num_classes
         if self.hparams.num_folds is not None:
             state['current_fold'] = self.hparams.current_fold
+        # Save feature selection state
+        if self._selected_indices is not None:
+            state['selected_indices'] = self._selected_indices
+        if self._feature_scores is not None:
+            state['feature_scores'] = self._feature_scores
+        if self._feature_stages is not None:
+            state['feature_stages'] = self._feature_stages
+        if self.hparams.feature_selection is not None:
+            state['feature_selection_config'] = self.hparams.feature_selection
         return state
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
@@ -483,6 +571,15 @@ class DataModule(LightningDataModule):
             self._num_classes = state_dict['num_classes']
         if 'current_fold' in state_dict:
             self.hparams.current_fold = state_dict['current_fold']
+        # Load feature selection state
+        if 'selected_indices' in state_dict:
+            self._selected_indices = state_dict['selected_indices']
+        if 'feature_scores' in state_dict:
+            self._feature_scores = state_dict['feature_scores']
+        if 'feature_stages' in state_dict:
+            self._feature_stages = state_dict['feature_stages']
+        if 'feature_selection_config' in state_dict:
+            self.hparams.feature_selection = state_dict['feature_selection_config']
 
 
 if __name__ == "__main__":

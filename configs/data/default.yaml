@@ -69,3 +69,58 @@ has_header: true
 
 # Whether the CSV has an index column (SNP/feature names)
 has_index: true
+
+# Feature Selection (optional)
+# Set to null to disable feature selection
+# Available methods: amgm, cosine, variance, mutual_info, l1
+feature_selection: null
+
+# Example configurations for different feature selection methods:
+#
+# AMGM (Arithmetic-Geometric Mean Ratio):
+# feature_selection:
+#   method: amgm
+#   k: 100              # Select top 100 features
+#   mode: ratio         # 'ratio' or 'diff'
+#
+# Cosine Redundancy (removes correlated features):
+# feature_selection:
+#   method: cosine
+#   k: 100              # Target number of features
+#   threshold: 0.95     # Similarity threshold
+#   selection_method: greedy  # 'greedy' or 'cluster'
+#
+# Variance Threshold:
+# feature_selection:
+#   method: variance
+#   k: 100              # Select top k by variance
+#   threshold: 0.0      # Or minimum variance threshold
+#
+# Mutual Information:
+# feature_selection:
+#   method: mutual_info
+#   k: 100              # Select top k features
+#   random_state: 42
+#
+# L1 Regularization:
+# feature_selection:
+#   method: l1
+#   k: 100              # Select top k by coefficient magnitude
+#   C: 1.0              # Inverse regularization strength
+#   random_state: 42
+#
+# Pipeline (Multi-stage selection):
+# feature_selection:
+#   method: pipeline
+#   stages:
+#     - name: variance_filter
+#       method: variance
+#       k: 5000
+#     - name: amgm_selection
+#       method: amgm
+#       k: 1000
+#       mode: ratio
+#     - name: remove_redundancy
+#       method: cosine
+#       k: 100
+#       threshold: 0.95
