@@ -256,7 +256,14 @@ class LitModule(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         # Build the model with a sample batch to ensure parameters exist before optimizer setup
-        if stage == "fit" and hasattr(self.net, 'model') and self.net.model is None:
+        # Check if model needs dynamic building (has .model or .encoder attribute that is None)
+        needs_building = False
+        if hasattr(self.net, 'model') and self.net.model is None:
+            needs_building = True
+        elif hasattr(self.net, 'encoder') and self.net.encoder is None:
+            needs_building = True
+        
+        if stage == "fit" and needs_building:
             # Get a sample batch from the datamodule to infer input size
             self.trainer.datamodule.setup(stage)
             train_dataloader = self.trainer.datamodule.train_dataloader()

@@ -50,7 +50,6 @@ has_index: true
 # Feature Selection (optional)
 # Set to null to disable, or configure for feature selection
 # Examples: amgm, cosine, variance, mutual_info, l1, pipeline
-feature_selection: null
 # Example: Select top 100 features using AMGM
 # feature_selection:
 #   method: amgm
@@ -58,14 +57,14 @@ feature_selection: null
 #   mode: ratio
 #
 # Example: Multi-stage pipeline (100k → 5k → 1k)
-# feature_selection:
-#   method: pipeline
-#   stages:
-#     - name: initial_filter
-#       method: amgm
-#       k: 5000
-#       mode: ratio
-#     - name: redundancy_removal
-#       method: cosine
-#       k: 1000
-#       threshold: 0.95
+feature_selection:
+  method: pipeline
+  stages:
+    - name: initial_filter
+      method: amgm
+      k: 5000
+      mode: ratio
+    - name: redundancy_removal
+      method: cosine
+      k: 1000
+      threshold: 0.95

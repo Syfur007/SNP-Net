@@ -1,0 +1,28 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=autism_vae
+
+defaults:
+  - override /data: autism
+  - override /model: vae
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# Variational Autoencoder for autism classification
+
+tags: ["autism", "vae", "case_control"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 100
+  gradient_clip_val: 0.5
+
+model:
+  net:
+    hidden_sizes: [512, 256, 128]
+    latent_dim: 64
+    dropout: 0.3

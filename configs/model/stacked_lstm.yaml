@@ -1,0 +1,27 @@
+_target_: src.models.module.LitModule
+
+# Number of classes (2 for binary case/control classification)
+num_classes: 2
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0001
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.5
+  patience: 5
+
+net:
+  _target_: src.models.components.stacked_lstm_net.StackedLSTMNet
+  window_size: 50  # Number of SNPs per window/chunk
+  hidden_sizes: [128, 64, 32]  # Hidden dimensions for each LSTM layer
+  output_size: 2
+  dropout: 0.3
+
+# compile model for faster training with pytorch 2.0
+compile: false
