@@ -12,7 +12,7 @@ defaults:
 
 # Bidirectional LSTM for autism classification
 
-tags: ["autism", "bilstm", "sequence", "case_control"]
+tags: ["autism", "bilstm", "sequence", "case_control", "feature_selection"]
 
 seed: 12345
 
@@ -58,6 +58,17 @@ data:
   normalize: true
   num_workers: 4
   pin_memory: true
+  feature_selection:
+    method: pipeline
+    stages:
+      - name: initial_filter
+        method: amgm
+        k: 5000
+        mode: ratio
+      - name: redundancy_removal
+        method: cosine
+        k: 1000
+        threshold: 0.95
 
 logger:
   wandb:
