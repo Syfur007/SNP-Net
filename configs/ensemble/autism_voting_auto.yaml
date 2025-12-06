@@ -1,0 +1,33 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - override /data: autism
+
+task_name: ensemble_eval
+tags:
+- ensemble
+- autism
+- voting
+ensemble:
+  weighting_strategy: accuracy
+  device: cpu
+  save_predictions: true
+  generate_plots: true
+  allow_inconsistent_preprocessing: false
+  models:
+  - name: bilstm
+    checkpoint_path: logs/train/multiruns/train_2025-12-06_17-04-47/3/checkpoints/epoch_020.ckpt
+    val_accuracy: 0.9764705896377563
+  - name: stacked_lstm
+    checkpoint_path: logs/train/multiruns/train_2025-12-06_17-04-47/4/checkpoints/epoch_022.ckpt
+    val_accuracy: 0.9764705896377563
+  - name: gru
+    checkpoint_path: logs/train/runs/train_2025-12-06_17-29-01/checkpoints/epoch_019.ckpt
+    val_accuracy: 0.9764705896377563
+  - name: autoencoder
+    checkpoint_path: logs/train/multiruns/train_2025-12-06_17-04-47/0/checkpoints/epoch_017.ckpt
+    val_accuracy: 0.7764706015586853
+  - name: vae
+    checkpoint_path: logs/train/runs/train_2025-12-06_17-41-26/checkpoints/epoch_017.ckpt
+    val_accuracy: 0.7882353067398071

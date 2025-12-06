@@ -1295,3 +1295,58 @@ You can override any parameter from command line like this
 ```bash
 python src/train.py trainer.max_epochs=20 data.batch_size=64
 ```
+
+<br>
+
+## 🎯 Ensemble Learning
+
+This project includes a comprehensive **Weighted Soft-Voting Ensemble** system for combining predictions from multiple trained models.
+
+### Quick Start
+
+```bash
+# 1. Auto-discover trained model checkpoints
+python scripts/discover_ensemble_checkpoints.py --dataset autism
+
+# 2. Run ensemble evaluation
+python src/ensemble_eval.py ensemble=autism_voting_auto
+
+# 3. View results
+cat logs/ensemble_eval/runs/*/ensemble_results/model_comparison.csv
+```
+
+### Features
+
+✅ **Weighted Soft Voting**: Combines 5 models (Bi-LSTM, Stacked LSTM, GRU, Autoencoder, VAE) using validation accuracy weights
+
+✅ **Preprocessing Alignment**: Ensures identical normalization + feature selection (AMGM + cosine redundancy to 1000 SNPs)
+
+✅ **Comprehensive Metrics**: Accuracy, Precision, Recall, F1-Score, ROC-AUC, Confusion Matrix
+
+✅ **Variance Analysis**: Cross-model standard deviation, agreement matrices, variance reduction
+
+✅ **Publication-Ready Plots**: ROC curves, metric comparisons, confusion matrices (300 DPI)
+
+✅ **Fully Modular**: Models and weights configurable via Hydra YAML
+
+✅ **Auto-Discovery**: Helper script to find trained models and generate configurations
+
+### Documentation
+
+- **Quick Start Guide**: [`docs/ensemble_quickstart.md`](docs/ensemble_quickstart.md)
+- **Complete Documentation**: [`docs/ensemble_usage.md`](docs/ensemble_usage.md)
+- **Unit Tests**: [`tests/test_ensemble.py`](tests/test_ensemble.py)
+
+### Example Output
+
+```
+Model          Type        Accuracy  Precision  Recall  F1-Score  ROC-AUC  Improvement (%)
+bilstm         Individual  0.8500    0.8600     0.8400  0.8500    0.9100   0.00
+stacked_lstm   Individual  0.8300    0.8400     0.8200  0.8300    0.8900   0.00
+gru            Individual  0.8400    0.8500     0.8300  0.8400    0.9000   0.00
+autoencoder    Individual  0.8200    0.8300     0.8100  0.8200    0.8800   0.00
+vae            Individual  0.8100    0.8200     0.8000  0.8100    0.8700   0.00
+Ensemble       Ensemble    0.8700    0.8800     0.8600  0.8700    0.9300   2.35
+```
+
+<br>

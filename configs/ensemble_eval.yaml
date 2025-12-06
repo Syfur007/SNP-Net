@@ -1,0 +1,19 @@
+# @package _global_
+
+# Main configuration file for ensemble evaluation
+# This file defines the default configuration for ensemble evaluation
+
+defaults:
+  - _self_
+  - data: default
+  - ensemble: autism_voting  # Default ensemble configuration
+  - logger: csv
+  - paths: default
+  - extras: default
+
+task_name: "ensemble_eval"
+
+tags: ["ensemble"]
+
+# Seed for reproducibility
+seed: 12345

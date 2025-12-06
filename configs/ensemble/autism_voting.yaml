@@ -1,0 +1,59 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - data: autism  # Use autism dataset
+  - logger: csv   # Simple CSV logger for ensemble results
+  - paths: default
+  - extras: default
+  - hydra: default
+
+task_name: "ensemble_eval"
+
+tags: ["ensemble", "autism", "voting"]
+
+# Ensemble configuration
+ensemble:
+  # Weighting strategy: "accuracy" or "custom"
+  weighting_strategy: "accuracy"
+  
+  # Device for inference
+  device: "cuda"  # Set to "cpu" if GPU not available
+  
+  # Whether to save predictions and probabilities
+  save_predictions: true
+  
+  # Whether to generate visualization plots
+  generate_plots: true
+  
+  # Allow inconsistent preprocessing (not recommended)
+  allow_inconsistent_preprocessing: false
+  
+  # List of models in the ensemble
+  # NOTE: Update checkpoint_path and val_accuracy based on your trained models
+  models:
+    - name: "bilstm"
+      checkpoint_path: "logs/train/runs/2024-XX-XX_XX-XX-XX/checkpoints/best.ckpt"
+      val_accuracy: 0.85  # Replace with actual validation accuracy
+      
+    - name: "stacked_lstm"
+      checkpoint_path: "logs/train/runs/2024-XX-XX_XX-XX-XX/checkpoints/best.ckpt"
+      val_accuracy: 0.83  # Replace with actual validation accuracy
+      
+    - name: "gru"
+      checkpoint_path: "logs/train/runs/2024-XX-XX_XX-XX-XX/checkpoints/best.ckpt"
+      val_accuracy: 0.84  # Replace with actual validation accuracy
+      
+    - name: "autoencoder"
+      checkpoint_path: "logs/train/runs/2024-XX-XX_XX-XX-XX/checkpoints/best.ckpt"
+      val_accuracy: 0.82  # Replace with actual validation accuracy
+      
+    - name: "vae"
+      checkpoint_path: "logs/train/runs/2024-XX-XX_XX-XX-XX/checkpoints/best.ckpt"
+      val_accuracy: 0.81  # Replace with actual validation accuracy
+
+# Data configuration (inherited from data/autism.yaml)
+data:
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
