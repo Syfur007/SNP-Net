@@ -1,8 +1,5 @@
 _target_: src.data.datamodule.DataModule
 
-# Dataset identifier for run naming
-name: autism
-
 # ============================================
 # Autism Dataset Configuration
 # ============================================
@@ -36,7 +33,7 @@ current_fold: 0
 batch_size: 32
 
 # Number of data loading workers
-num_workers: 0
+num_workers: 4
 
 # Whether to pin memory for faster GPU transfer
 pin_memory: false

@@ -10,8 +10,6 @@ defaults:
   - override /trainer: default
   - override /logger: wandb
 
-# Dense neural network for autism classification
-
 tags: ["autism", "dense", "case_control"]
 
 seed: 12345
@@ -31,23 +29,12 @@ callbacks:
     monitor: "val/acc"
     mode: "max"
     save_top_k: 3
-    save_last: true
 
-model:
-  num_classes: 2
-  optimizer:
-    lr: 0.001
-    weight_decay: 0.0001
-  scheduler:
-    mode: min
-    factor: 0.5
-    patience: 5
-  net:
-    hidden_sizes: [256, 128, 64]
-    dropout: 0.3
-  compile: false
-
-data:
+logger:
+  wandb:
+    name: "Autism-Dense-${model.net.hidden_sizes}"
+    tags: ${tags}
+    group: "autism_classification"
   data_file: "data/FinalizedAutismData.csv"
   labels_in_last_row: true
   batch_size: 32

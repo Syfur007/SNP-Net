@@ -1,8 +1,5 @@
 _target_: src.data.datamodule.DataModule
 
-# Dataset identifier for run naming
-name: mental
-
 # ============================================
 # Mental Health Dataset Configuration
 # ============================================
