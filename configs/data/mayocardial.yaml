@@ -1,0 +1,70 @@
+_target_: src.data.datamodule.DataModule
+
+# ============================================
+# Mayocardial Dataset Configuration
+# ============================================
+# SNP data for mayocardial case/control classification
+# ============================================
+
+# Path to the CSV file containing SNP data
+data_file: "data/FinalizedMayocardialData.csv"
+
+# Optional: Path to separate CSV file containing labels
+label_file: null
+
+# Whether labels are in the last row of the CSV file
+labels_in_last_row: true
+
+# Optional: Name of the row in data_file containing labels
+label_row_name: null
+
+# Train, validation, test split proportions (must sum to 1.0)
+train_val_test_split: [0.7, 0.15, 0.15]
+
+# K-Fold Cross Validation (optional)
+# Set to null to use regular train/val/test split
+# Set to an integer >= 2 to enable k-fold cross validation
+num_folds: null
+
+# Current fold index (0 to num_folds-1)
+current_fold: 0
+
+# Batch size for training
+batch_size: 32
+
+# Number of data loading workers
+num_workers: 4
+
+# Whether to pin memory for faster GPU transfer
+pin_memory: false
+
+# Whether to normalize data using z-score normalization
+normalize: true
+
+# Whether the CSV has a header row (sample names)
+has_header: true
+
+# Whether the CSV has an index column (SNP/feature names)
+has_index: true
+
+# Feature Selection (optional)
+# Set to null to disable, or configure for feature selection
+# Examples: amgm, cosine, variance, mutual_info, l1, pipeline
+# Example: Select top 100 features using AMGM
+# feature_selection:
+#   method: amgm
+#   k: 100
+#   mode: ratio
+#
+# Example: Multi-stage pipeline (100k → 5k → 1k)
+feature_selection:
+  method: pipeline
+  stages:
+    - name: initial_filter
+      method: amgm
+      k: 5000
+      mode: ratio
+    - name: redundancy_removal
+      method: cosine
+      k: 1000
+      threshold: 0.95
