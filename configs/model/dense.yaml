@@ -1,3 +1,6 @@
+defaults:
+  - scheduler: reduce_lr_on_plateau  # Options: cosine_annealing, cosine_annealing_warm_restarts, step_lr, reduce_lr_on_plateau
+
 _target_: src.models.module.LitModule
 
 # Number of classes (2 for binary case/control classification)
@@ -8,13 +11,6 @@ optimizer:
   _partial_: true
   lr: 0.001
   weight_decay: 0.0001
-
-scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
-  _partial_: true
-  mode: min
-  factor: 0.5
-  patience: 5
 
 net:
   _target_: src.models.components.dense_net.DenseNet

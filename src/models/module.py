@@ -302,14 +302,24 @@ class LitModule(LightningModule):
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
+            
+            # Determine scheduler configuration based on scheduler type
+            # ReduceLROnPlateau requires metric monitoring, while epoch-based schedulers do not
+            scheduler_name = self.hparams.scheduler._target_ if hasattr(self.hparams.scheduler, '_target_') else str(type(scheduler).__name__)
+            
+            lr_scheduler_config = {
+                "scheduler": scheduler,
+                "interval": "epoch",
+                "frequency": 1,
+            }
+            
+            # Add metric monitoring only for metric-based schedulers (ReduceLROnPlateau)
+            if "ReduceLROnPlateau" in scheduler_name or isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                lr_scheduler_config["monitor"] = "val/loss"
+            
             return {
                 "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
-                    "frequency": 1,
-                },
+                "lr_scheduler": lr_scheduler_config,
             }
         return {"optimizer": optimizer}
 
