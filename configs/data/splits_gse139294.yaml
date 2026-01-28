@@ -1,0 +1,46 @@
+# Data configuration for pre-split GSE139294 dataset
+# This configuration uses separate files for train, validation, and test splits
+# from data/splits_gse139294 directory
+
+# Target class for instantiation
+_target_: src.data.datamodule.DataModule
+
+# Root directory for data files (absolute or relative path)
+data_dir: null
+
+# Separate train, validation, and test file paths
+# These will be resolved relative to data_dir if data_dir is set
+train_file: "data/splits_gse139294/TRAIN_70_percent.csv"
+val_file: "data/splits_gse139294/VAL_20_percent.csv"
+test_file: "data/splits_gse139294/TEST_10_percent.csv"
+
+# Main data file (not used when train_file is provided, but required for compatibility)
+data_file: null
+
+# Label configuration
+# For pre-split datasets, all files should have the same label format
+# Labels are in the last COLUMN of each file (per-sample), not in a separate row
+labels_in_last_row: false
+label_row_name: null
+label_file: null
+
+# Data preprocessing
+batch_size: 32
+num_workers: 0
+pin_memory: false
+normalize: true
+
+# CSV reading parameters
+has_header: true   # Whether CSV has sample names as header
+has_index: true    # Whether CSV has feature/SNP names as index column
+
+# K-fold cross validation (disabled for pre-split datasets)
+num_folds: null
+current_fold: 0
+
+# Feature selection pipeline (optional)
+feature_selection: null
+
+# Train/val/test split proportions
+# Not used when separate split files are provided
+train_val_test_split: [0.7, 0.2, 0.1]

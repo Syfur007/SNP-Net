@@ -22,7 +22,7 @@ hydra:
 
 trainer:
   max_epochs: 3  # Just run 3 epochs for quick testing
-  detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
+  detect_anomaly: false # disabled - slows down training significantly
   limit_train_batches: 10  # Only use 10 batches per epoch
   limit_val_batches: 5     # Only use 5 validation batches
   limit_test_batches: 5    # Only use 5 test batches

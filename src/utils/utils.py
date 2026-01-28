@@ -1,12 +1,26 @@
 import warnings
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, Optional, Tuple
+from unittest.mock import patch
 
+import torch
 from omegaconf import DictConfig
 
 from src.utils import pylogger, rich_utils
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
+
+def register_checkpoint_safe_globals() -> None:
+    """Register checkpoint loading workaround for PyTorch 2.6+ compatibility.
+    
+    PyTorch 2.6+ defaults to weights_only=True for security. This function is
+    deprecated as the torch.load patching is now done at module import time in
+    train.py, eval.py, and ensemble_eval.py.
+    
+    This function is kept for backward compatibility but can be safely ignored.
+    """
+    pass  # Patching is now done at module level in main scripts
 
 
 def extras(cfg: DictConfig) -> None:

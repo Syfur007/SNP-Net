@@ -1,8 +1,5 @@
 _target_: src.data.datamodule.DataModule
 
-# Dataset identifier for run naming
-name: default
-
 # ============================================
 # SNP Data CSV Format
 # ============================================
@@ -25,12 +22,19 @@ name: default
 #   label      case   control   case
 # ============================================
 
+# Optional: Root directory for data files
+# If not provided, uses the default data directory from paths/default.yaml
+# Useful for pointing to different data locations without changing file paths
+data_dir: "C:/Users/Shadman Sakib/Downloads/SNP-Net/data"
+
 # Path to the CSV file containing SNP data
 # Expected format: SNPs (features) as rows, samples as columns
+# Can be relative (resolved against data_dir) or absolute path
 data_file: "data/snp_data.csv"
 
 # Optional: Path to separate CSV file containing labels
 # If not provided, labels must be in the data file
+# Can be relative (resolved against data_dir) or absolute path
 label_file: null
 
 # Whether labels are in the last row of the CSV file (case/control for samples)

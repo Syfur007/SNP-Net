@@ -9,14 +9,24 @@ from pathlib import Path
 
 import hydra
 import rootutils
+import torch
 from lightning import LightningDataModule
 from omegaconf import DictConfig
-import torch
 import numpy as np
+
+# Patch torch.load to disable weights_only check for PyTorch 2.6+ compatibility
+_original_torch_load = torch.load
+
+def _patched_torch_load(path, *args, **kwargs):
+    """Patched torch.load that disables weights_only checks for custom classes."""
+    kwargs['weights_only'] = False
+    return _original_torch_load(path, *args, **kwargs)
+
+torch.load = _patched_torch_load
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from src.utils import RankedLogger, extras, task_wrapper
+from src.utils import RankedLogger, extras, register_checkpoint_safe_globals, task_wrapper
 from src.ensemble import WeightedSoftVotingEnsemble, EnsembleEvaluator
 from src.ensemble.preprocessing import (
     load_preprocessing_from_checkpoint,
@@ -39,6 +49,9 @@ def evaluate_ensemble(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     Returns:
         Tuple of (metric_dict, object_dict) with evaluation results.
     """
+    # Register safe globals for checkpoint loading (PyTorch 2.6+)
+    register_checkpoint_safe_globals()
+    
     # Validate ensemble configuration
     if not cfg.get("ensemble"):
         raise ValueError("Ensemble configuration is required. Please specify 'ensemble' in config.")

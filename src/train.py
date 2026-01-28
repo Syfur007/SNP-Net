@@ -4,9 +4,29 @@ import hydra
 import lightning as L
 import rootutils
 import torch
+import warnings
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+
+import json
+import os
+
+# Suppress Lightning's num_workers warning - we use 0 on Windows for stability
+warnings.filterwarnings('ignore', message=".*does not have many workers.*")
+# Suppress logging interval warning for small datasets
+warnings.filterwarnings('ignore', message=".*is smaller than the logging interval.*")
+
+# Patch torch.load to disable weights_only check for PyTorch 2.6+ compatibility
+# This must be done BEFORE any imports that use torch.load
+_original_torch_load = torch.load
+
+def _patched_torch_load(path, *args, **kwargs):
+    """Patched torch.load that disables weights_only checks for custom classes."""
+    kwargs['weights_only'] = False
+    return _original_torch_load(path, *args, **kwargs)
+
+torch.load = _patched_torch_load
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -33,6 +53,7 @@ from src.utils import (
     instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
+    register_checkpoint_safe_globals,
     task_wrapper,
 )
 
@@ -50,6 +71,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
+    # Register safe globals for checkpoint loading (PyTorch 2.6+)
+    register_checkpoint_safe_globals()
+    
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
@@ -117,6 +141,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             ckpt_path = None
         trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
         log.info(f"Best ckpt path: {ckpt_path}")
+        
+        # Explicitly log test metrics to wandb if using wandb logger
+        if logger:
+            for lg in logger:
+                if hasattr(lg, 'experiment'):  # WandbLogger has 'experiment' attribute
+                    test_metrics = trainer.callback_metrics
+                    # Log all test metrics to wandb
+                    test_metric_dict = {k: v for k, v in test_metrics.items() if 'test/' in k}
+                    if test_metric_dict:
+                        lg.log_metrics(test_metric_dict)
 
     test_metrics = trainer.callback_metrics
 
@@ -148,6 +182,10 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Store results for all folds
     all_fold_results = []
+    
+    # Keep a reference to the master logger (instantiated once for all folds)
+    log.info("Instantiating master logger for k-fold...")
+    master_logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     # Train on each fold
     for fold_idx in range(num_folds):
@@ -168,9 +206,8 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Instantiating callbacks...")
         callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 
-        # Instantiate fresh loggers for this fold
-        log.info("Instantiating loggers...")
-        logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+        # Reuse master logger for all folds to maintain run continuity
+        logger = master_logger
 
         log.info(f"Instantiating trainer for fold {fold_idx}")
         trainer: Trainer = hydra.utils.instantiate(
@@ -188,13 +225,10 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             "trainer": trainer,
         }
 
-        if logger:
+        if logger and fold_idx == 0:
+            # Only log hyperparameters once for the first fold
             log.info("Logging hyperparameters!")
             log_hyperparameters(object_dict)
-            # Log fold number
-            for lg in logger:
-                if hasattr(lg, "log_hyperparameters"):
-                    lg.log_hyperparameters({"fold": fold_idx})
 
         if cfg.get("train"):
             log.info(f"Starting training for fold {fold_idx}!")
@@ -213,6 +247,22 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
         test_metrics = trainer.callback_metrics.copy()
 
+        # Log test metrics to wandb at this step (creates line charts when comparing runs)
+        if logger:
+            for lg in logger:
+                if hasattr(lg, 'experiment') and hasattr(lg.experiment, 'log'):
+                    # Log test metrics with fold info - this creates individual lines per fold
+                    wandb_metrics = {}
+                    for key, val in test_metrics.items():
+                        if 'test/' in key:
+                            if hasattr(val, 'item'):
+                                val = val.item()
+                            # Log with model name to distinguish in WandB comparison view
+                            wandb_metrics[f"{key}"] = float(val)
+                    
+                    if wandb_metrics:
+                        lg.experiment.log(wandb_metrics)
+
         # Store results for this fold
         fold_results = {
             "fold": fold_idx,
@@ -220,11 +270,11 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             "test_metrics": test_metrics,
         }
         all_fold_results.append(fold_results)
-
         log.info(f"Fold {fold_idx} completed!")
         
-        # Clean up to free memory
-        del datamodule, model, callbacks, logger, trainer
+        # Clean up to free memory (but NOT master_logger or trainer loggers)
+        # Note: Don't delete trainer/callbacks - WandB finalize accesses them via weak refs
+        del datamodule, model
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
     # Aggregate results across all folds
@@ -239,8 +289,20 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     for key, value in metric_dict.items():
         if isinstance(value, (int, float)):
             log.info(f"  {key}: {value:.4f}")
+    
+    # Create and log summary report to wandb using master logger
+    try:
+        _create_kfold_summary_report(all_fold_results, cfg, master_logger)
+    except Exception as e:
+        log.warning(f"Could not create kfold summary report: {e}")
+    
+    # Create object_dict with master logger for return
+    final_object_dict = {
+        "cfg": cfg,
+        "logger": master_logger,
+    }
 
-    return metric_dict, object_dict
+    return metric_dict, final_object_dict
 
 
 def _aggregate_fold_results(all_fold_results: List[dict]) -> dict:
@@ -277,8 +339,84 @@ def _aggregate_fold_results(all_fold_results: List[dict]) -> dict:
             if len(values) > 1:
                 variance = sum((v - mean_val) ** 2 for v in values) / len(values)
                 aggregated[f"std_{key}"] = variance ** 0.5
+    
+    # Add compatibility mappings: if we have test/acc, also provide val/acc for config compatibility
+    # This allows configs with optimized_metric: val/acc to work with k-fold
+    if "avg_test/acc" in aggregated:
+        aggregated["avg_val/acc"] = aggregated["avg_test/acc"]
+    if "std_test/acc" in aggregated:
+        aggregated["std_val/acc"] = aggregated["std_test/acc"]
 
     return aggregated
+
+
+def _create_kfold_summary_report(all_fold_results: List[dict], cfg: DictConfig, logger: List[Logger]) -> None:
+    """Create and log k-fold summary report to wandb.
+    
+    :param all_fold_results: List of dictionaries containing results for each fold.
+    :param cfg: Configuration object.
+    :param logger: List of loggers (to find wandb logger).
+    """
+    if not logger:
+        return
+    
+    try:
+        wandb_logger = None
+        for lg in logger:
+            if hasattr(lg, 'experiment') and hasattr(lg.experiment, 'log'):
+                wandb_logger = lg
+                break
+        
+        if not wandb_logger:
+            log.warning("No wandb logger found")
+            return
+        
+        import wandb
+        
+        # Create summary table with all folds
+        table_data = []
+        aggregated = _aggregate_fold_results(all_fold_results)
+        
+        for fold_idx, fold_result in enumerate(all_fold_results):
+            row = {"Fold": fold_idx + 1}
+            test_metrics = fold_result["test_metrics"]
+            
+            # Extract key metrics for the table
+            for key in ["test/acc", "test/f1", "test/auroc", "test/precision", "test/recall", "test/loss"]:
+                if key in test_metrics:
+                    val = test_metrics[key]
+                    if hasattr(val, 'item'):
+                        val = val.item()
+                    row[key.replace('test/', '')] = round(float(val), 4)
+            
+            table_data.append(row)
+        
+        # Add average row
+        avg_row = {"Fold": "Average"}
+        for key in ["test/acc", "test/f1", "test/auroc", "test/precision", "test/recall", "test/loss"]:
+            avg_key = f"avg_{key}"
+            if avg_key in aggregated:
+                avg_row[key.replace('test/', '')] = round(float(aggregated[avg_key]), 4)
+        table_data.append(avg_row)
+        
+        # Log as wandb table for comparison view
+        columns = ["Fold"] + list(table_data[0].keys())[1:]
+        wandb_table = wandb.Table(columns=columns, data=[[row.get(col, "") for col in columns] for row in table_data])
+        wandb_logger.experiment.log({"k_fold_summary_table": wandb_table})
+        
+        # Also log individual fold metrics for line chart visualization
+        for fold_data in table_data[:-1]:  # Exclude average row
+            fold_num = fold_data.pop("Fold")
+            for metric_name, metric_val in fold_data.items():
+                if metric_val != "":
+                    wandb_logger.experiment.log({
+                        f"fold_{fold_num}/{metric_name}": metric_val
+                    })
+        
+        log.info("✅ K-Fold summary report logged to wandb")
+        
+    except Exception as e:
+        log.warning(f"Could not create wandb summary report: {e}")
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")

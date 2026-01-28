@@ -69,6 +69,12 @@ class DataModule(LightningDataModule):
         current_fold: int = 0,
         # Feature selection parameters (optional)
         feature_selection: Optional[Dict[str, Any]] = None,
+        # Data directory option
+        data_dir: Optional[str] = None,
+        # Separate split files (optional - if provided, overrides train_val_test_split)
+        train_file: Optional[str] = None,
+        val_file: Optional[str] = None,
+        test_file: Optional[str] = None,
     ) -> None:
         """Initialize a `SNPDataModule`.
 
@@ -89,6 +95,10 @@ class DataModule(LightningDataModule):
             - method: str (amgm, cosine, variance, mutual_info, l1)
             - k: int (number of features to select)
             - Additional method-specific parameters (threshold, mode, C, etc.)
+        :param data_dir: Optional root directory for data files. If provided, data_file and label_file paths are resolved relative to this directory.
+        :param train_file: Optional separate path for training data. If provided, overrides train_val_test_split.
+        :param val_file: Optional separate path for validation data. Required if train_file is provided.
+        :param test_file: Optional separate path for test data. Required if train_file is provided.
         """
         super().__init__()
 
@@ -138,6 +148,29 @@ class DataModule(LightningDataModule):
             return self._num_features
         return 0
 
+    def _resolve_data_path(self, file_path: Optional[str]) -> Optional[str]:
+        """Resolve a data file path relative to data_dir if data_dir is set.
+        
+        :param file_path: The file path to resolve. Can be absolute or relative.
+        :return: The resolved absolute path, or None if file_path is None.
+        """
+        import os
+        
+        if file_path is None:
+            return None
+        
+        # If path is already absolute, return as is
+        if os.path.isabs(file_path):
+            return file_path
+        
+        # If data_dir is specified AND we're NOT using split files, resolve path relative to it
+        # (When using split files from train_file, ignore data_dir to avoid path doubling)
+        if self.hparams.data_dir is not None and self.hparams.train_file is None:
+            return os.path.join(self.hparams.data_dir, file_path)
+        
+        # Otherwise return path as is (relative to working directory)
+        return file_path
+
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
         within a single process on CPU, so you can safely add your downloading logic within. In
@@ -146,13 +179,36 @@ class DataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        # Check if data file exists
         import os
-        if not os.path.exists(self.hparams.data_file):
-            raise FileNotFoundError(
-                f"Data file not found: {self.hparams.data_file}\n"
-                f"Please ensure the SNP data CSV file is available at the specified path."
-            )
+        
+        # If using separate split files, check all of them
+        if self.hparams.train_file is not None:
+            train_file = self._resolve_data_path(self.hparams.train_file)
+            if not os.path.exists(train_file):
+                raise FileNotFoundError(
+                    f"Training data file not found: {train_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
+            val_file = self._resolve_data_path(self.hparams.val_file)
+            if not os.path.exists(val_file):
+                raise FileNotFoundError(
+                    f"Validation data file not found: {val_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
+            test_file = self._resolve_data_path(self.hparams.test_file)
+            if not os.path.exists(test_file):
+                raise FileNotFoundError(
+                    f"Test data file not found: {test_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
+        else:
+            # Check single data file exists
+            data_file = self._resolve_data_path(self.hparams.data_file)
+            if not os.path.exists(data_file):
+                raise FileNotFoundError(
+                    f"Data file not found: {data_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -164,6 +220,9 @@ class DataModule(LightningDataModule):
 
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
+        import logging
+        log = logging.getLogger(__name__)
+        
         # Divide batch size by the number of devices.
         if self.trainer is not None:
             if self.hparams.batch_size % self.trainer.world_size != 0:
@@ -174,50 +233,201 @@ class DataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            import logging
-            log = logging.getLogger(__name__)
-            
-            # Load data
-            data, labels = self._load_data()
-            
-            # Store number of features and classes
-            self._num_features = data.shape[1]
-            self._num_classes = len(torch.unique(labels))
-            
-            # Normalize if requested
-            if self.hparams.normalize:
-                print("[SNP DataModule] Normalizing data (z-score normalization)...")
-                log.info("Normalizing data (z-score normalization)...")
-                data, self.mean, self.std = self._normalize_data(data)
-                print("[SNP DataModule] ✓ Data normalization complete")
-                log.info("Data normalization complete.")
-            
-            # Apply feature selection if requested
-            if self.hparams.feature_selection is not None:
-                print(f"[SNP DataModule] Applying feature selection: {self.hparams.feature_selection.get('method', 'unknown')}...")
-                log.info(f"Applying feature selection: {self.hparams.feature_selection}")
-                data, self._selected_indices, self._feature_scores = self._select_features(data, labels)
-                print(f"[SNP DataModule] ✓ Feature selection complete. Selected {len(self._selected_indices)} features from {data.shape[1]}")
-                log.info(f"Feature selection complete. Selected {len(self._selected_indices)} features.")
-            
-            # Create full dataset
-            print("[SNP DataModule] Creating dataset...")
-            log.info("Creating dataset...")
-            full_dataset = Dataset(data, labels)
-            
-            # Check if k-fold cross validation is requested
-            if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
-                print(f"[SNP DataModule] Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
-                log.info(f"Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
-                self._setup_kfold(full_dataset)
-                print(f"[SNP DataModule] ✓ K-fold setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-                log.info(f"K-fold setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            # Check if separate split files are provided
+            if self.hparams.train_file is not None and self.hparams.val_file is not None and self.hparams.test_file is not None:
+                print("[SNP DataModule] Using separate split files...")
+                log.info("Using separate split files for train/val/test")
+                self._setup_separate_splits()
             else:
-                print("[SNP DataModule] Setting up regular train/val/test split...")
-                log.info("Setting up regular train/val/test split...")
-                self._setup_regular_split(full_dataset)
-                print(f"[SNP DataModule] ✓ Split complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-                log.info(f"Split complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                print("[SNP DataModule] Loading full dataset...")
+                log.info("Loading full dataset")
+                # Load data
+                data, labels = self._load_data()
+                
+                # Store number of features and classes
+                self._num_features = data.shape[1]
+                self._num_classes = len(torch.unique(labels))
+                
+                # Normalize if requested
+                if self.hparams.normalize:
+                    print("[SNP DataModule] Normalizing data (z-score normalization)...")
+                    log.info("Normalizing data (z-score normalization)...")
+                    data, self.mean, self.std = self._normalize_data(data)
+                    print("[SNP DataModule] Data normalization complete")
+                    log.info("Data normalization complete.")
+                
+                # Apply feature selection if requested
+                if self.hparams.feature_selection is not None:
+                    print(f"[SNP DataModule] Applying feature selection: {self.hparams.feature_selection.get('method', 'unknown')}...")
+                    log.info(f"Applying feature selection: {self.hparams.feature_selection}")
+                    data, self._selected_indices, self._feature_scores = self._select_features(data, labels)
+                    print(f"[SNP DataModule] Feature selection complete. Selected {len(self._selected_indices)} features from {data.shape[1]}")
+                    log.info(f"Feature selection complete. Selected {len(self._selected_indices)} features.")
+                
+                # Create full dataset
+                print("[SNP DataModule] Creating dataset...")
+                log.info("Creating dataset...")
+                full_dataset = Dataset(data, labels)
+                
+                # Check if k-fold cross validation is requested
+                if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
+                    print(f"[SNP DataModule] Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
+                    log.info(f"Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
+                    self._setup_kfold(full_dataset)
+                    print(f"[SNP DataModule] K-fold setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                    log.info(f"K-fold setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                else:
+                    print("[SNP DataModule] Setting up regular train/val/test split...")
+                    log.info("Setting up regular train/val/test split...")
+                    self._setup_regular_split(full_dataset)
+                    print(f"[SNP DataModule] Split complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                    log.info(f"Split complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+    
+    
+    def _setup_separate_splits(self) -> None:
+        """Setup using separate pre-split data files for train/val/test.
+        
+        Loads and processes train, validation, and test data from separate CSV files.
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        
+        print("[SNP DataModule] Loading separate split files...")
+        log.info("Loading separate split files for train/val/test")
+        
+        # Load training data
+        print("[SNP DataModule] Loading training data...")
+        train_data, train_labels = self._load_data_from_file(
+            self._resolve_data_path(self.hparams.train_file),
+            split_name="train"
+        )
+        
+        # Load validation data
+        print("[SNP DataModule] Loading validation data...")
+        val_data, val_labels = self._load_data_from_file(
+            self._resolve_data_path(self.hparams.val_file),
+            split_name="validation"
+        )
+        
+        # Load test data
+        print("[SNP DataModule] Loading test data...")
+        test_data, test_labels = self._load_data_from_file(
+            self._resolve_data_path(self.hparams.test_file),
+            split_name="test"
+        )
+        
+        # Combine all data for computing statistics
+        # Data tensors have shape (samples, features), so concatenate along dim=0 (samples)
+        all_data = torch.cat([train_data, val_data, test_data], dim=0)
+        all_labels = torch.cat([train_labels, val_labels, test_labels], dim=0)
+        
+        # Store number of features and classes
+        self._num_features = all_data.shape[1]
+        self._num_classes = len(torch.unique(all_labels))
+        
+        # Normalize if requested (compute statistics from all data)
+        if self.hparams.normalize:
+            print("[SNP DataModule] Normalizing data (z-score normalization)...")
+            log.info("Normalizing data (z-score normalization)...")
+            train_data, self.mean, self.std = self._normalize_data(train_data)
+            val_data = (val_data - self.mean) / (self.std + 1e-8)
+            test_data = (test_data - self.mean) / (self.std + 1e-8)
+            print("[SNP DataModule] Data normalization complete")
+            log.info("Data normalization complete.")
+        
+        # Apply feature selection if requested (learn from training data only)
+        if self.hparams.feature_selection is not None:
+            print(f"[SNP DataModule] Applying feature selection: {self.hparams.feature_selection.get('method', 'unknown')}...")
+            log.info(f"Applying feature selection: {self.hparams.feature_selection}")
+            train_data, self._selected_indices, self._feature_scores = self._select_features(train_data, train_labels)
+            # Apply same feature selection to val and test data
+            if self._selected_indices is not None:
+                val_data = val_data[:, self._selected_indices]
+                test_data = test_data[:, self._selected_indices]
+            print(f"[SNP DataModule] Feature selection complete. Selected {len(self._selected_indices)} features")
+            log.info(f"Feature selection complete. Selected {len(self._selected_indices)} features.")
+        
+        # Create datasets from tensors
+        self.data_train = Dataset(train_data, train_labels)
+        self.data_val = Dataset(val_data, val_labels)
+        self.data_test = Dataset(test_data, test_labels)
+        
+        print(f"[SNP DataModule] Split setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+        log.info(f"Split setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+    
+    def _load_data_from_file(self, file_path: str, split_name: str = "data") -> Tuple[torch.Tensor, torch.Tensor]:
+        """Load a single data file and return as tensors.
+        
+        :param file_path: Path to the CSV file
+        :param split_name: Name of the split for logging
+        :return: Tuple of (data_tensor, labels_tensor)
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        
+        # Read CSV file with memory-efficient method
+        header = 0 if self.hparams.has_header else None
+        index_col = 0 if self.hparams.has_index else None
+        
+        try:
+            # Try pandas with chunked reading for large files (more memory efficient)
+            chunks = []
+            for chunk in pd.read_csv(
+                file_path, 
+                header=header, 
+                index_col=index_col,
+                low_memory=True,
+                chunksize=10000,  # Read in 10k row chunks
+                # Don't specify dtype globally - let pandas auto-detect, will convert later
+            ):
+                chunks.append(chunk)
+            df = pd.concat(chunks, ignore_index=False)
+        except (pd.errors.ParserError, MemoryError, ValueError):
+            # Fallback: use numpy for ultra-memory-efficient loading
+            print(f"[SNP DataModule] Pandas failed, using numpy for memory-efficient loading...")
+            data_array = np.loadtxt(file_path, delimiter=',', skiprows=1, dtype=np.float32)
+            # This approach loses column/index names but handles memory better
+            df = pd.DataFrame(data_array)
+        
+        print(f"[SNP DataModule] {split_name.capitalize()} CSV loaded: {df.shape[0]} rows × {df.shape[1]} columns")
+        log.info(f"{split_name.capitalize()} CSV loaded: {df.shape[0]} rows × {df.shape[1]} columns")
+        
+        # Load or extract labels
+        if self.hparams.label_file is not None:
+            # Labels in separate file
+            label_file = self._resolve_data_path(self.hparams.label_file)
+            labels_df = pd.read_csv(label_file)
+            labels = labels_df.values.flatten()
+        elif self.hparams.labels_in_last_row:
+            # Labels are in the last row of the CSV file
+            labels = df.iloc[-1].values
+            df = df.iloc[:-1]
+        elif self.hparams.label_row_name is not None:
+            # Labels in data file as a specific named row
+            labels = df.loc[self.hparams.label_row_name].values
+            df = df.drop(self.hparams.label_row_name)
+        else:
+            # Try to extract labels from the last column (per-sample labels)
+            # This is the format for split files: data columns + label column
+            last_col_name = df.columns[-1]
+            labels = df[last_col_name].values
+            df = df.drop(columns=[last_col_name])
+        
+        # Convert string labels to numeric
+        labels = self._convert_labels_to_numeric(labels)
+        
+        # Remove the label column from the data
+        # Now df is (samples, features) where features are SNPs
+        
+        # Convert to numeric (keep as samples × features)
+        data_values = df.values.astype(float)
+        data_values = np.nan_to_num(data_values, nan=0.0)
+        
+        # Convert to tensors - keep as (samples, features)
+        data_tensor = torch.from_numpy(data_values).float()
+        labels_tensor = torch.from_numpy(labels).long()
+        
+        return data_tensor, labels_tensor
     
     def _setup_regular_split(self, full_dataset: Dataset) -> None:
         """Setup regular train/val/test split.
@@ -355,8 +565,11 @@ class DataModule(LightningDataModule):
         import logging
         log = logging.getLogger(__name__)
         
-        print(f"[SNP DataModule] Loading SNP data from {self.hparams.data_file}...")
-        log.info(f"Loading SNP data from {self.hparams.data_file}...")
+        # Resolve data file path
+        data_file = self._resolve_data_path(self.hparams.data_file)
+        
+        print(f"[SNP DataModule] Loading SNP data from {data_file}...")
+        log.info(f"Loading SNP data from {data_file}...")
         
         # Determine header and index parameters
         header = 0 if self.hparams.has_header else None
@@ -367,7 +580,7 @@ class DataModule(LightningDataModule):
         print("[SNP DataModule] Reading CSV file (this may take a while for large datasets)...")
         log.info("Reading CSV file (this may take a while for large datasets)...")
         df = pd.read_csv(
-            self.hparams.data_file, 
+            data_file, 
             header=header, 
             index_col=index_col,
             low_memory=False
@@ -377,8 +590,9 @@ class DataModule(LightningDataModule):
         
         # Load or extract labels
         if self.hparams.label_file is not None:
-            # Labels in separate file
-            labels_df = pd.read_csv(self.hparams.label_file)
+            # Labels in separate file - resolve label_file path
+            label_file = self._resolve_data_path(self.hparams.label_file)
+            labels_df = pd.read_csv(label_file)
             labels = labels_df.values.flatten()
         elif self.hparams.labels_in_last_row:
             # Labels are in the last row of the CSV file (case/control for each sample)
@@ -420,7 +634,7 @@ class DataModule(LightningDataModule):
         data_tensor = torch.tensor(data_values, dtype=torch.float32)
         labels_tensor = torch.tensor(labels, dtype=torch.long)
         
-        print(f"[SNP DataModule] ✓ Data loaded: {data_tensor.shape[0]} samples, {data_tensor.shape[1]} features, {len(torch.unique(labels_tensor))} classes")
+        print(f"[SNP DataModule] Data loaded: {data_tensor.shape[0]} samples, {data_tensor.shape[1]} features, {len(torch.unique(labels_tensor))} classes")
         log.info(f"Data loading complete: {data_tensor.shape[0]} samples, {data_tensor.shape[1]} features, {len(torch.unique(labels_tensor))} classes")
         
         return data_tensor, labels_tensor
@@ -434,9 +648,17 @@ class DataModule(LightningDataModule):
         :param labels: Array of labels (can be strings or numbers).
         :return: Array of numeric labels.
         """
+        # Convert to numpy array if it's a pandas series or has StringDtype
+        if hasattr(labels, 'to_numpy'):
+            labels = labels.to_numpy()
+        
         # If labels are already numeric, return as is
-        if np.issubdtype(labels.dtype, np.number):
-            return labels
+        try:
+            if np.issubdtype(labels.dtype, np.number):
+                return labels
+        except (TypeError, AttributeError):
+            # Handle pandas StringDtype and other non-standard dtypes
+            pass
         
         # Convert to lowercase strings for case-insensitive matching
         labels_lower = np.array([str(label).lower().strip() for label in labels])

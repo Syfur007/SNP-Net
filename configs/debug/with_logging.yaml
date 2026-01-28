@@ -1,0 +1,32 @@
+# @package _global_
+
+# Debugging setup with logging enabled
+# Runs 1 full epoch but keeps wandb logging active
+
+task_name: "debug"
+
+# Keep callbacks and loggers enabled
+callbacks:
+  model_checkpoint: null  # Skip checkpoint to save disk space
+  early_stopping: null    # Skip early stopping
+  # rich_progress_bar is used by default in trainer
+
+logger:
+  wandb:
+    project: "SNP-Net"
+    job_type: "debug"
+
+extras:
+  ignore_warnings: False
+  enforce_tags: False
+
+hydra:
+  job_logging:
+    root:
+      level: DEBUG
+
+trainer:
+  max_epochs: 1
+  accelerator: cpu
+  devices: 1
+  enable_progress_bar: true

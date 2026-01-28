@@ -2,9 +2,20 @@ from typing import Any, Dict, List, Tuple
 
 import hydra
 import rootutils
+import torch
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+
+# Patch torch.load to disable weights_only check for PyTorch 2.6+ compatibility
+_original_torch_load = torch.load
+
+def _patched_torch_load(path, *args, **kwargs):
+    """Patched torch.load that disables weights_only checks for custom classes."""
+    kwargs['weights_only'] = False
+    return _original_torch_load(path, *args, **kwargs)
+
+torch.load = _patched_torch_load
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -29,6 +40,7 @@ from src.utils import (
     extras,
     instantiate_loggers,
     log_hyperparameters,
+    register_checkpoint_safe_globals,
     task_wrapper,
 )
 
@@ -45,6 +57,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
+    # Register safe globals for checkpoint loading (PyTorch 2.6+)
+    register_checkpoint_safe_globals()
+    
     assert cfg.ckpt_path
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")

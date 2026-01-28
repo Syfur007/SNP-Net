@@ -6,6 +6,10 @@ _target_: src.data.datamodule.DataModule
 # SNP data for autism case/control classification
 # ============================================
 
+# Optional: Root directory for data files
+# If not provided, uses the default data directory from paths/default.yaml
+data_dir: "C:/Users/Shadman Sakib/Downloads/SNP-Net/data"
+
 # Path to the CSV file containing SNP data
 data_file: "data/FinalizedAutismData.csv"
 
@@ -33,7 +37,8 @@ current_fold: 0
 batch_size: 32
 
 # Number of data loading workers
-num_workers: 4
+# Note: On Windows, set to 0 to avoid DataLoader worker crashes
+num_workers: 0
 
 # Whether to pin memory for faster GPU transfer
 pin_memory: false

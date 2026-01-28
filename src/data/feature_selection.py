@@ -101,28 +101,35 @@ def select_cosine_redundancy(
     # Normalize features for cosine similarity
     data_normalized = data / (np.linalg.norm(data, axis=0, keepdims=True) + 1e-10)
     
-    # Compute pairwise cosine similarity matrix
-    similarity_matrix = np.abs(data_normalized.T @ data_normalized)
-    np.fill_diagonal(similarity_matrix, 0)  # Ignore self-similarity
-    
     if method == "greedy":
         # Greedy approach: iteratively remove features with highest average similarity
         remaining_indices = np.arange(n_features)
         
         while len(remaining_indices) > k:
+            # Compute pairwise cosine similarity only for remaining features
+            subset = data_normalized[:, remaining_indices]
+            similarity_subset = np.abs(subset.T @ subset)
+            np.fill_diagonal(similarity_subset, 0)
+            
             # Compute mean similarity for each remaining feature
-            mean_similarities = similarity_matrix[remaining_indices][:, remaining_indices].mean(axis=1)
+            mean_similarities = similarity_subset.mean(axis=1)
             
             # Remove feature with highest mean similarity
             worst_idx_in_remaining = np.argmax(mean_similarities)
-            worst_idx = remaining_indices[worst_idx_in_remaining]
-            
             remaining_indices = np.delete(remaining_indices, worst_idx_in_remaining)
         
-        selected_indices = np.sort(remaining_indices)  # Sort for contiguous indexing
-        scores = similarity_matrix.mean(axis=1)
+        selected_indices = np.sort(remaining_indices)
+        # Compute full scores only once at the end
+        full_subset = data_normalized[:, selected_indices]
+        similarity_full = np.abs(full_subset.T @ full_subset)
+        np.fill_diagonal(similarity_full, 0)
+        scores = similarity_full.mean(axis=1)
         
     elif method == "cluster":
+        # Compute pairwise cosine similarity matrix
+        similarity_matrix = np.abs(data_normalized.T @ data_normalized)
+        np.fill_diagonal(similarity_matrix, 0)
+        
         # Cluster-based: identify redundant groups and keep one representative per group
         from sklearn.cluster import AgglomerativeClustering
         
@@ -152,7 +159,7 @@ def select_cosine_redundancy(
                 best_in_cluster = cluster_indices[np.argmin(within_cluster_distances)]
                 selected_indices.append(best_in_cluster)
         
-        selected_indices = np.sort(np.array(selected_indices))  # Sort for contiguous indexing
+        selected_indices = np.sort(np.array(selected_indices))
         scores = similarity_matrix.mean(axis=1)
     else:
         raise ValueError(f"Unknown method: {method}. Use 'greedy' or 'cluster'.")
@@ -393,7 +400,7 @@ def select_pipeline(
             'params': stage_params
         })
         
-        print(f"    → Selected {len(selected_local)} features")
+        print(f"    -> Selected {len(selected_local)} features")
         
         # Update for next stage
         current_data = current_data[:, selected_local]

@@ -1,0 +1,59 @@
+_target_: src.data.datamodule.DataModule
+
+data_dir: null
+
+train_file: "data/splits_gse90073/TRAIN_70_percent.csv"
+val_file: "data/splits_gse90073/VAL_20_percent.csv"
+test_file: "data/splits_gse90073/TEST_10_percent.csv"
+
+data_file: null
+
+# =========================
+# LABEL CONFIG (FIXED)
+# =========================
+labels_in_last_row: false
+label_row_name: null
+label_file: null
+
+# label is LAST COLUMN
+label_column_name: "label"
+
+# =========================
+# DATALOADER
+# =========================
+batch_size: 32
+num_workers: 0
+pin_memory: false
+normalize: true
+
+# =========================
+# CSV FORMAT
+# =========================
+has_header: true
+has_index: true
+
+# =========================
+# CV (DISABLED)
+# =========================
+num_folds: null
+current_fold: 0
+
+feature_selection: null
+train_val_test_split: [0.7, 0.2, 0.1]
+
+
+# CSV reading parameters
+has_header: true  # Whether CSV has sample names as header
+has_index: true   # Whether CSV has feature/SNP names as index column
+
+# K-fold cross validation (disabled for pre-split datasets)
+num_folds: null
+current_fold: 0
+
+# Feature selection pipeline (optional)
+# Leave as null to disable, or configure with method, k, and other parameters
+feature_selection: null
+
+# Train/val/test split proportions (not used when separate split files are provided)
+train_val_test_split: [0.7, 0.2, 0.1]
+

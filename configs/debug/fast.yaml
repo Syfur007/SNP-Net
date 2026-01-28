@@ -1,0 +1,39 @@
+# Fast iteration config - for quick model testing
+# Reduces training time from 2 hours to ~15-20 minutes
+
+defaults:
+  - override /data: mayocardial
+  - override /trainer: default
+  - override /callbacks: default
+  - override /logger: null  # Disable logging for speed
+
+# Override data config for faster iteration
+data:
+  num_folds: 2  # Reduce from 5 folds to 2 folds (cuts time in half)
+  batch_size: 64  # Increase batch size for faster data loading
+
+# Override trainer config for faster iteration
+trainer:
+  max_epochs: 20  # Reduce from 100 to 20 epochs
+  min_epochs: 5   # Reduce from 10 to 5 epochs
+  accelerator: cpu
+  devices: 1
+  check_val_every_n_epoch: 1
+  enable_progress_bar: true
+  gradient_clip_val: 0.5
+
+# Use fast callbacks (no logging overhead)
+callbacks:
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: val/loss
+    min_delta: 0.0
+    patience: 5  # Reduce patience from 15 to 5 for faster stopping
+    verbose: false
+    mode: min
+    strict: true
+    check_finite: true
+
+seed: 12345
+train: true
+test: true
