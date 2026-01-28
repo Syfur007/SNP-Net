@@ -20,7 +20,7 @@ scheduler:
 
 net:
   _target_: src.models.components.dpcformer_net.DPCformerNet
-  num_snps: 1000  # Number of SNPs to use for sequence creation
+  num_snps: 1000  # Number of SNPs to use for sequence creation (matches GSE139294 feature selection)
   encoding_dim: 1  # 1 for single value encoding (0, 1, 2)
   hidden_dim: 128  # Hidden dimension for attention
   num_heads: 8  # Number of attention heads

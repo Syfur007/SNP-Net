@@ -25,7 +25,7 @@ trainer:
 callbacks:
   early_stopping:
     monitor: "val/loss"
-    patience: 20
+    patience: 5
     mode: "min"
   
   model_checkpoint:

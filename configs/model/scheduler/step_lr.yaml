@@ -1,0 +1,8 @@
+﻿# StepLR - reduces learning rate by gamma every step_size epochs
+# Simple and effective for fixed training schedules
+
+_target_: torch.optim.lr_scheduler.StepLR
+_partial_: true
+step_size: 10       # Number of epochs to reduce LR every
+gamma: 0.5          # Multiplicative factor of learning rate decay
+last_epoch: -1      # Index of the last epoch

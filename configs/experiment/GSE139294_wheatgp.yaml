@@ -4,7 +4,7 @@
 # python src/train.py experiment=mental_wheatgp
 
 defaults:
-  - override /data: mental
+  - override /data: GSE139294
   - override /model: wheatgp
   - override /callbacks: default
   - override /trainer: default
@@ -15,10 +15,10 @@ defaults:
 
 tags: ["mental", "wheatgp", "cnn", "lstm", "epistatic", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
-  min_epochs: 10
+  min_epochs: 50
   max_epochs: 100
   gradient_clip_val: 1.0
   

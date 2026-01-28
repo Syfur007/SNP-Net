@@ -20,7 +20,7 @@ scheduler:
 
 net:
   _target_: src.models.components.wheatgp_net.WheatGPNet
-  num_snps: 1000  # Number of SNPs to use for sequence creation
+  num_snps: 1000  # Number of SNPs to use for sequence creation (matches GSE139294 feature selection)
   encoding_dim: 1  # 1 for single value encoding (0, 1, 2)
   cnn_channels: [64, 128, 256]  # CNN channel dimensions
   lstm_hidden: 128  # LSTM hidden dimension

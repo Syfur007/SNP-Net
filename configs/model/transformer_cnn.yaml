@@ -20,7 +20,7 @@ scheduler:
 
 net:
   _target_: src.models.components.transformer_cnn_net.TransformerCNNNet
-  num_snps: 1000  # Number of SNPs to use for sequence creation
+  num_snps: 1000  # Number of SNPs to use for sequence creation (matches GSE139294 feature selection)
   encoding_dim: 1  # 1 for single value encoding (0, 1, 2)
   d_model: 64  # Transformer embedding dimension
   nhead: 8  # Number of attention heads

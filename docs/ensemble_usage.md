@@ -50,7 +50,7 @@ configs/ensemble/
 ├── autism_voting.yaml             # Ensemble config for autism dataset
 └── autism_voting_auto.yaml        # Auto-generated config (after discovery)
 
-scripts/
+tools/
 └── discover_ensemble_checkpoints.py  # Auto-discover trained models
 
 src/
@@ -84,37 +84,77 @@ python src/train.py experiment=autism_autoencoder
 python src/train.py experiment=autism_vae
 ```
 
+**Note:** Training will save checkpoints to `logs/train/runs/{experiment_name}_{timestamp}/checkpoints/`. The best checkpoint is automatically selected based on validation accuracy.
+
 ### Step 2: Auto-Discover Checkpoints (Recommended)
 
 Use the checkpoint discovery script to automatically find trained models and generate ensemble configuration:
 
 ```bash
-python scripts/discover_ensemble_checkpoints.py \
+python tools/discover_ensemble_checkpoints.py \
     --dataset autism \
     --models bilstm stacked_lstm gru autoencoder vae \
     --output configs/ensemble/autism_voting_auto.yaml
 ```
 
 This will:
-1. Scan `logs/train/runs/` for trained model checkpoints
-2. Extract validation accuracies from checkpoints
-3. Generate a properly configured YAML file
+1. Scan `logs/train/runs/` and `logs/train/multiruns/` for trained model checkpoints
+2. Match checkpoints by experiment name pattern (e.g., `autism_bilstm_*`)
+3. Extract validation accuracies from checkpoint metadata (from `ModelCheckpoint` callback state)
+4. Generate a properly configured YAML file with absolute checkpoint paths
+5. Auto-detect GPU availability and set appropriate device
+
+**How checkpoint discovery works:**
+- Searches for directories matching `{dataset}_{model}_*` pattern
+- Falls back to checking `.hydra/config.yaml` for older directory structures
+- Prioritizes `best.ckpt` if available, otherwise selects checkpoint with highest epoch
+- Extracts validation accuracy from checkpoint's callback state
+
+**Output example:**
+```
+Searching for bilstm checkpoints...
+  Found matching directory: autism_bilstm_2026-01-12_14-30-22
+  ✓ Found checkpoint: logs/train/runs/autism_bilstm_2026-01-12_14-30-22/checkpoints/best.ckpt
+    Validation accuracy: 0.8523
+
+Searching for stacked_lstm checkpoints...
+  Found matching directory: autism_stacked_lstm_2026-01-12_15-45-10
+  ✓ Found checkpoint: logs/train/runs/autism_stacked_lstm_2026-01-12_15-45-10/checkpoints/best.ckpt
+    Validation accuracy: 0.8431
+...
+
+✓ Found 5/5 model checkpoints.
+✓ Generated ensemble configuration: configs/ensemble/autism_voting_auto.yaml
+
+To run ensemble evaluation:
+  python src/ensemble_eval.py ensemble=autism_voting_auto
+```
 
 ### Step 3: Run Ensemble Evaluation
 
 Evaluate the ensemble on the test set:
 
 ```bash
-# Using auto-generated config
+# Using auto-generated config (recommended)
 python src/ensemble_eval.py ensemble=autism_voting_auto
 
 # Or using manually configured file
 python src/ensemble_eval.py ensemble=autism_voting
 ```
 
+**What happens:**
+1. Loads all model checkpoints specified in the config
+2. Verifies preprocessing consistency across models
+3. Applies identical preprocessing to test data as used during training
+4. Computes weighted soft-voting predictions using validation accuracy weights
+5. Evaluates ensemble and individual models on test set
+6. Generates comprehensive metrics and visualizations
+
 ### Step 4: View Results
 
-Results are saved to `logs/ensemble_eval/runs/{timestamp}/ensemble_results/`:
+Results are saved to `logs/ensemble_eval/runs/{config_name}_{timestamp}/ensemble_results/`:
+
+Example: `logs/ensemble_eval/runs/autism_voting_auto_2026-01-12_10-30-45/ensemble_results/`
 
 ```
 ensemble_results/
@@ -129,6 +169,10 @@ ensemble_results/
     ├── variance_analysis.png      # Agreement heatmap + accuracy distribution
     └── confusion_matrix.png       # Ensemble confusion matrix
 ```
+
+The directory name includes:
+- **config_name**: The ensemble config used (e.g., `autism_voting_auto`)
+- **timestamp**: Execution time in format `YYYY-MM-DD_HH-MM-SS`
 
 ## Configuration
 
@@ -158,9 +202,20 @@ ensemble:
 
 To manually specify checkpoint paths and validation accuracies:
 
-1. Edit `configs/ensemble/autism_voting.yaml`
-2. Update `checkpoint_path` for each model
-3. Update `val_accuracy` for each model (use actual validation accuracies from training)
+1. Copy the template: `cp configs/ensemble/autism_voting.yaml configs/ensemble/autism_voting_custom.yaml`
+2. Edit `configs/ensemble/autism_voting_custom.yaml`
+3. Update `checkpoint_path` for each model with absolute or workspace-relative paths
+4. Update `val_accuracy` for each model (find these in training logs or checkpoint metadata)
+5. Use it: `python src/ensemble_eval.py ensemble=autism_voting_custom`
+
+**Finding validation accuracies manually:**
+```bash
+# Check training logs
+cat logs/train/runs/{experiment_run}/train.log | grep "val/acc"
+
+# Or use the discovery script to see found accuracies
+python tools/discover_ensemble_checkpoints.py --dataset autism
+```
 
 ### Command-Line Overrides
 
@@ -220,8 +275,15 @@ ensemble:
 To run ensemble on the mental health dataset:
 
 ```bash
+# Train mental health models first
+python src/train.py experiment=mental_bilstm
+python src/train.py experiment=mental_stacked_lstm
+python src/train.py experiment=mental_gru
+python src/train.py experiment=mental_autoencoder
+python src/train.py experiment=mental_vae
+
 # Discover mental health checkpoints
-python scripts/discover_ensemble_checkpoints.py \
+python tools/discover_ensemble_checkpoints.py \
     --dataset mental \
     --output configs/ensemble/mental_voting_auto.yaml
 
@@ -276,8 +338,9 @@ The ROC comparison plot shows:
 **Cause**: Invalid checkpoint path in configuration.
 
 **Solution**: 
-1. Run checkpoint discovery script
-2. Or manually verify checkpoint paths exist
+1. Run checkpoint discovery script: `python tools/discover_ensemble_checkpoints.py --dataset autism`
+2. Or manually verify checkpoint paths exist: `ls logs/train/runs/*/checkpoints/best.ckpt`
+3. Check that experiment names match: training creates directories like `autism_bilstm_{timestamp}`
 
 ### Error: "Preprocessing parameters inconsistent"
 

@@ -1,0 +1,10 @@
+﻿# Cosine Annealing with Warm Restarts (SGDR)
+# Uses multiple restarts with increasing periods to help escape local minima
+# Useful for longer training or exploration
+
+_target_: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+_partial_: true
+T_0: 10             # Number of iterations in the first restart period
+T_mult: 2           # Multiplier for restart period (period doubles each restart)
+eta_min: 1.0e-6     # Minimum learning rate
+last_epoch: -1      # Index of the last epoch

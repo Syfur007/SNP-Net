@@ -1,24 +1,23 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=autism_lstm
-
+# python train.py experiment=GSE139294_bilstm
 defaults:
-  - override /data: autism
-  - override /model: lstm
+  - override /data: GSE139294
+  - override /model: bilstm
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["autism", "lstm", "case_control"]
+tags: ["lung_adenocarcinoma", "bilstm", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
-  min_epochs: 10
+  min_epochs: 50
   max_epochs: 100
-  gradient_clip_val: 1.0
-  
+  gradient_clip_val: 0.5
+
 callbacks:
   early_stopping:
     monitor: "val/loss"
@@ -32,6 +31,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Autism-LSTM-h${model.net.hidden_size}-L${model.net.num_layers}"
+    name: "GSE139294-lung_adenocarcinoma-BiLSTM-h${model.net.hidden_size}-L${model.net.num_layers}"
     tags: ${tags}
-    group: "autism_classification"
+    group: "GSE139294_classification"

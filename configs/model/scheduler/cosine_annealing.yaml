@@ -1,0 +1,9 @@
+﻿# Cosine Annealing LR Scheduler
+# Reduces learning rate following cosine curve from initial LR to eta_min over T_max epochs
+# Recommended for models trained for a fixed number of epochs (known max_epochs)
+
+_target_: torch.optim.lr_scheduler.CosineAnnealingLR
+_partial_: true
+T_max: 100          # Maximum number of iterations (epochs) for cosine annealing
+eta_min: 1.0e-6     # Minimum learning rate to decay to (floor value)
+last_epoch: -1      # Index of the last epoch (usually -1 at start)

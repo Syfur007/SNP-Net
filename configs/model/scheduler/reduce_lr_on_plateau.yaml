@@ -1,0 +1,11 @@
+﻿# ReduceLROnPlateau - existing default scheduler (metric-based)
+# Reduces learning rate when validation metric plateaus
+# Recommended for adaptive training without knowing max_epochs
+
+_target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+_partial_: true
+mode: min           # min for loss, max for accuracy
+factor: 0.5         # Multiply LR by this factor when plateau detected
+patience: 5         # Number of epochs with no improvement to trigger reduction
+min_lr: 1.0e-6      # Minimum learning rate
+verbose: false      # Print when LR is reduced
