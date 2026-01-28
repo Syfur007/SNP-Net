@@ -19,7 +19,7 @@ seed: 12345
 
 trainer:
   min_epochs: 10
-  max_epochs: 50
+  max_epochs: 100
   gradient_clip_val: 1.0
   
 callbacks:
