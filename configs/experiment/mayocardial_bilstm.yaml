@@ -12,7 +12,7 @@ defaults:
 
 tags: ["mayocardial", "bilstm", "case_control"]
 
-seed: 42
+seed: 123545
 
 trainer:
   min_epochs: 10
