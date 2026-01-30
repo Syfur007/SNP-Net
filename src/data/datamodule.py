@@ -162,6 +162,11 @@ class DataModule(LightningDataModule):
         `self.prepare_data()` and there is a barrier in between which ensures that all the processes proceed to
         `self.setup()` once the data is prepared and available for use.
 
+        **IMPORTANT:** To prevent data leakage, normalization and feature selection are applied AFTER splitting:
+        - Normalization statistics (mean/std) are computed from training set only
+        - Feature selection is performed on training set only
+        - Validation and test sets are transformed using training statistics
+
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
@@ -177,47 +182,39 @@ class DataModule(LightningDataModule):
             import logging
             log = logging.getLogger(__name__)
             
-            # Load data
+            # Load raw data (NO preprocessing yet)
             data, labels = self._load_data()
             
             # Store number of features and classes
             self._num_features = data.shape[1]
             self._num_classes = len(torch.unique(labels))
             
-            # Normalize if requested
-            if self.hparams.normalize:
-                print("[SNP DataModule] Normalizing data (z-score normalization)...")
-                log.info("Normalizing data (z-score normalization)...")
-                data, self.mean, self.std = self._normalize_data(data)
-                print("[SNP DataModule] ✓ Data normalization complete")
-                log.info("Data normalization complete.")
-            
-            # Apply feature selection if requested
-            if self.hparams.feature_selection is not None:
-                print(f"[SNP DataModule] Applying feature selection: {self.hparams.feature_selection.get('method', 'unknown')}...")
-                log.info(f"Applying feature selection: {self.hparams.feature_selection}")
-                data, self._selected_indices, self._feature_scores = self._select_features(data, labels)
-                print(f"[SNP DataModule] ✓ Feature selection complete. Selected {len(self._selected_indices)} features from {data.shape[1]}")
-                log.info(f"Feature selection complete. Selected {len(self._selected_indices)} features.")
-            
-            # Create full dataset
-            print("[SNP DataModule] Creating dataset...")
-            log.info("Creating dataset...")
+            # Create full dataset BEFORE preprocessing to enable proper splitting
+            print("[SNP DataModule] Creating dataset (raw data)...")
+            log.info("Creating dataset (raw data)...")
             full_dataset = Dataset(data, labels)
             
-            # Check if k-fold cross validation is requested
+            # SPLIT FIRST (into raw train/val/test with no leakage)
             if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
                 print(f"[SNP DataModule] Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
                 log.info(f"Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
                 self._setup_kfold(full_dataset)
-                print(f"[SNP DataModule] ✓ K-fold setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-                log.info(f"K-fold setup complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                print(f"[SNP DataModule] [OK] K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                log.info(f"K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
             else:
                 print("[SNP DataModule] Setting up regular train/val/test split...")
                 log.info("Setting up regular train/val/test split...")
                 self._setup_regular_split(full_dataset)
-                print(f"[SNP DataModule] ✓ Split complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-                log.info(f"Split complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                print(f"[SNP DataModule] [OK] Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+                log.info(f"Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            
+            # NOW apply preprocessing (normalization + feature selection) to each split
+            # This ensures no data leakage: mean/std and feature selection computed on train set only
+            print("[SNP DataModule] Applying preprocessing (normalization & feature selection)...")
+            log.info("Applying preprocessing...")
+            self._apply_preprocessing_to_splits()
+            print(f"[SNP DataModule] [OK] Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            log.info(f"Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
     
     def _setup_regular_split(self, full_dataset: Dataset) -> None:
         """Setup regular train/val/test split.
@@ -286,6 +283,88 @@ class DataModule(LightningDataModule):
         self.data_train = Subset(self.trainval_dataset, train_idx.tolist())
         self.data_val = Subset(self.trainval_dataset, val_idx.tolist())
         self.data_test = self.test_dataset
+    
+    def _apply_preprocessing_to_splits(self) -> None:
+        """Apply normalization and feature selection to train/val/test splits.
+        
+        This method ensures no data leakage by:
+        1. Computing normalization statistics (mean/std) from training set only
+        2. Performing feature selection on training set only
+        3. Applying learned transformations to val and test sets
+        
+        Called AFTER train/val/test splits have been created.
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        
+        # Extract raw data from train, val, test subsets
+        train_data, train_labels = self._extract_subset_data(self.data_train)
+        val_data, val_labels = self._extract_subset_data(self.data_val)
+        test_data, test_labels = self._extract_subset_data(self.data_test)
+        
+        # Step 1: Normalize (compute statistics from training set only)
+        if self.hparams.normalize:
+            print("[SNP DataModule] Computing normalization statistics from training set...")
+            log.info("Computing normalization statistics from training set...")
+            
+            # Compute mean/std on training data only
+            self.mean = train_data.mean(dim=0, keepdim=True)
+            self.std = train_data.std(dim=0, keepdim=True)
+            self.std = torch.where(self.std == 0, torch.ones_like(self.std), self.std)
+            
+            # Apply normalization to all splits
+            train_data = (train_data - self.mean) / self.std
+            val_data = (val_data - self.mean) / self.std
+            test_data = (test_data - self.mean) / self.std
+            
+            print("[SNP DataModule] [OK] Normalization complete (statistics computed from training set)")
+            log.info("Normalization complete (statistics computed from training set)")
+        
+        # Step 2: Feature selection (select features from training set only)
+        if self.hparams.feature_selection is not None:
+            print(f"[SNP DataModule] Selecting features from training set only: {self.hparams.feature_selection.get('method', 'unknown')}...")
+            log.info(f"Selecting features from training set: {self.hparams.feature_selection}")
+            
+            # Select features using training set only
+            train_data, self._selected_indices, self._feature_scores = self._select_features(
+                train_data, train_labels
+            )
+            
+            # Apply same feature selection to val and test
+            val_data = val_data[:, self._selected_indices]
+            test_data = test_data[:, self._selected_indices]
+            
+            print(f"[SNP DataModule] [OK] Feature selection complete. Selected {len(self._selected_indices)} features")
+            log.info(f"Feature selection complete. Selected {len(self._selected_indices)} features")
+        
+        # Step 3: Recreate datasets with preprocessed data
+        self.data_train = Dataset(train_data, train_labels)
+        self.data_val = Dataset(val_data, val_labels)
+        self.data_test = Dataset(test_data, test_labels)
+    
+    def _extract_subset_data(self, subset: Subset) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Extract data and labels from a Subset or Dataset.
+        
+        :param subset: A Subset or Dataset object
+        :return: Tuple of (data_tensor, labels_tensor)
+        """
+        if isinstance(subset, Subset):
+            # Get the underlying dataset and indices
+            dataset = subset.dataset
+            indices = subset.indices
+            
+            # Extract data for these indices
+            all_data = dataset.data
+            all_labels = dataset.labels
+            
+            data = all_data[indices]
+            labels = all_labels[indices]
+        else:
+            # Assume it's a Dataset
+            data = subset.data
+            labels = subset.labels
+        
+        return data, labels
 
     def _select_features(
         self, data: torch.Tensor, labels: torch.Tensor
@@ -420,7 +499,7 @@ class DataModule(LightningDataModule):
         data_tensor = torch.tensor(data_values, dtype=torch.float32)
         labels_tensor = torch.tensor(labels, dtype=torch.long)
         
-        print(f"[SNP DataModule] ✓ Data loaded: {data_tensor.shape[0]} samples, {data_tensor.shape[1]} features, {len(torch.unique(labels_tensor))} classes")
+        print(f"[SNP DataModule] [OK] Data loaded: {data_tensor.shape[0]} samples, {data_tensor.shape[1]} features, {len(torch.unique(labels_tensor))} classes")
         log.info(f"Data loading complete: {data_tensor.shape[0]} samples, {data_tensor.shape[1]} features, {len(torch.unique(labels_tensor))} classes")
         
         return data_tensor, labels_tensor
@@ -434,9 +513,17 @@ class DataModule(LightningDataModule):
         :param labels: Array of labels (can be strings or numbers).
         :return: Array of numeric labels.
         """
+        # Convert to numpy array if needed (handles pandas Series with StringDtype)
+        if hasattr(labels, 'values'):
+            labels = labels.values.astype(object)  # Convert StringDtype to object
+        
         # If labels are already numeric, return as is
-        if np.issubdtype(labels.dtype, np.number):
-            return labels
+        try:
+            if np.issubdtype(labels.dtype, np.number):
+                return labels
+        except (TypeError, AttributeError):
+            # If dtype check fails, treat as string labels
+            pass
         
         # Convert to lowercase strings for case-insensitive matching
         labels_lower = np.array([str(label).lower().strip() for label in labels])

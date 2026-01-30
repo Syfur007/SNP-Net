@@ -157,6 +157,8 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         
         # Instantiate fresh datamodule for this fold with the current fold index
         # We must override current_fold during instantiation, not by modifying cfg
+        # IMPORTANT: Each fold gets fresh preprocessing (normalization + feature selection)
+        # computed from its own training set ONLY, ensuring proper data isolation
         log.info(f"Instantiating datamodule for fold {fold_idx}")
         datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data, current_fold=fold_idx)
 

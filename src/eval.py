@@ -64,6 +64,23 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     except Exception as e:
         log.info(f"load_from_checkpoint failed ({e}), falling back to instantiated model and letting Trainer handle ckpt")
 
+    # Load preprocessing parameters from checkpoint to ensure test set is processed
+    # using the same statistics that were computed from the training set
+    log.info(f"Loading preprocessing parameters from checkpoint: {cfg.ckpt_path}")
+    try:
+        import torch
+        checkpoint = torch.load(cfg.ckpt_path, map_location="cpu", weights_only=False)
+        datamodule_state = checkpoint.get("datamodule", checkpoint.get("DataModule", {}))
+        
+        if datamodule_state:
+            log.info("Restoring preprocessing parameters from checkpoint...")
+            datamodule.load_state_dict(datamodule_state)
+            log.info("✓ Preprocessing parameters loaded (mean, std, feature selection indices)")
+        else:
+            log.warning("No datamodule state found in checkpoint. Preprocessing will be recomputed from test data.")
+    except Exception as e:
+        log.warning(f"Could not load preprocessing from checkpoint ({e}). Preprocessing will be recomputed from test data.")
+
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
