@@ -1,6 +1,6 @@
 #!/bin/bash
-# Run all GSE139294 experiments sequentially
-# Usage: bash scripts/run_gse139294_all.sh
+# Run all autism experiments sequentially
+# Usage: bash scripts/run_autism_all.sh
 
 set -e  # Exit on error
 
@@ -10,16 +10,18 @@ if [ -d "env/bin" ]; then
 fi
 
 echo "========================================"
-echo "Running All GSE139294 Experiments"
+echo "Running All autism Experiments"
 echo "========================================"
 echo ""
 
 experiments=(
-    "GSE139294_dpcformer"
-    "GSE139294_wheatgp"
-    "GSE139294_bilstm"
-    "GSE139294_transformer_cnn"
-    "GSE139294_vae"
+    "autism_autoencoder"
+    "autism_vae"
+    "autism_lstm"
+    "autism_bilstm"
+    "autism_dpcformer"
+    "autism_wheatgp"
+    "autism_transformer_cnn"
 )
 
 total=${#experiments[@]}
@@ -36,5 +38,5 @@ for exp in "${experiments[@]}"; do
 done
 
 echo "========================================"
-echo "✓ All GSE139294 experiments completed!"
+echo "✓ All autism experiments completed!"
 echo "========================================"
