@@ -1,0 +1,37 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=GSE33355_dense
+
+defaults:
+  - override /data: GSE33355
+  - override /model: dense
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# Dense neural network for GSE33355 classification
+
+tags: ["GSE33355", "dense", "case_control"]
+
+seed: 42
+
+trainer:
+  min_epochs: 10
+  gradient_clip_val: 0.5
+  
+callbacks:
+  early_stopping:
+    monitor: "val/loss"
+    mode: "min"
+  
+  model_checkpoint:
+    save_top_k: 3
+
+logger:
+  wandb:
+    name: "GSE33355-Dense-${model.net.hidden_sizes}"
+    tags: ${tags}
+    group: "GSE33355_classification"
+  aim:
+    experiment: "GSE33355_dense"

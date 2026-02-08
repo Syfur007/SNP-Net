@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=mental_gru
+# python train.py experiment=mental_stacked_lstm
 
 defaults:
   - override /data: mental
-  - override /model: gru
+  - override /model: stacked_lstm
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["mental", "gru", "case_control"]
+tags: ["mental", "stacked_lstm", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Mental-GRU-h${model.net.hidden_size}-L${model.net.num_layers}"
+    name: "Mental-StackedLSTM-${model.net.hidden_sizes}-w${model.net.window_size}"
     tags: ${tags}
     group: "mental_classification"

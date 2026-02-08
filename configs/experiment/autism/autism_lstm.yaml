@@ -1,24 +1,24 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=autism_gru
+# python train.py experiment=autism_lstm
 
 defaults:
   - override /data: autism
-  - override /model: gru
+  - override /model: lstm
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["autism", "gru", "case_control"]
+tags: ["autism", "lstm", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
   max_epochs: 100
   gradient_clip_val: 1.0
-
+  
 callbacks:
   early_stopping:
     monitor: "val/loss"
@@ -32,7 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Autism-GRU-h${model.net.hidden_size}-L${model.net.num_layers}"
+    name: "Autism-LSTM-w${model.net.window_size}-h${model.net.hidden_size}-L${model.net.num_layers}"
     tags: ${tags}
     group: "autism_classification"
-    experiment: "autism_gru"

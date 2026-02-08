@@ -15,7 +15,7 @@ defaults:
 
 tags: ["mental", "dpcformer", "hybrid", "cnn", "transformer", "attention", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -35,40 +35,9 @@ callbacks:
     save_last: true
     filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
 
-model:
-  num_classes: 2
-  optimizer:
-    lr: 0.0005  # Lower learning rate for transformer-based models
-    weight_decay: 0.0001
-    betas: [0.9, 0.999]
-  scheduler:
-    mode: min
-    factor: 0.5
-    patience: 5
-    min_lr: 1.0e-6
-  net:
-    num_snps: 2000  # Use 2000 SNPs for mental health data
-    encoding_dim: 1  # Single value encoding
-    hidden_dim: 128  # Hidden dimension for attention
-    num_heads: 4  # 4 attention heads for capturing diverse patterns
-    num_cnn_layers: 3  # 3 CNN layers for local feature extraction
-    dropout: 0.3  # Dropout for regularization
-    output_size: 2
-    use_gradient_checkpointing: true
-  compile: false
-
-data:
-  data_file: "data/FinalizedMentalData.csv"
-  labels_in_last_row: true
-  batch_size: 32
-  train_val_test_split: [0.7, 0.15, 0.15]
-  normalize: true
-  num_workers: 4
-  pin_memory: true
-
 logger:
   wandb:
-    name: "Mental-DPCformer-h128-nhead4-cnn3-snps2000-bs32"
+    name: "Mental-DPCformer-h{model.net.hidden_dim}-L${model.net.num_transformer_layers}-CNN${model.net.num_cnn_layers}-Dense${model.net.dense_dims}"
     tags: ${tags}
     group: "mental_classification"
     notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based mental health prediction"

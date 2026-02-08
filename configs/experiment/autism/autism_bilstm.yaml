@@ -12,7 +12,7 @@ defaults:
 
 tags: ["autism", "bilstm", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Autism-BiLSTM-h${model.net.hidden_size}-L${model.net.num_layers}"
+    name: "Autism-BiLSTM-w${model.net.window_size}-h${model.net.hidden_size}-L${model.net.num_layers}"
     tags: ${tags}
     group: "autism_classification"

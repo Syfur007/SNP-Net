@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=mental_vae
+# python train.py experiment=autism_vae
 
 defaults:
-  - override /data: mental
+  - override /data: autism
   - override /model: vae
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["mental", "vae", "case_control"]
+tags: ["autism", "vae", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Mental-VAE-latent${model.net.latent_dim}"
+    name: "Autism-VAE-latent${model.net.latent_dim}-h${model.net.hidden_sizes}"
     tags: ${tags}
-    group: "mental_classification"
+    group: "autism_classification"

@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python src/train.py experiment=mayocardial_deepplantcre
+# python src/train.py experiment=mental_deepplantcre
 
 defaults:
-  - override /data: mayocardial
+  - override /data: mental
   - override /model: deepplantcre
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["mayocardial", "deepplantcre", "transformer", "cnn", "hybrid"]
+tags: ["mental", "deepplantcre", "transformer", "cnn", "hybrid"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -54,3 +54,9 @@ model:
     dense_dims: [256, 128]
     dropout: 0.25
     output_size: 2
+
+logger:
+  wandb:
+    name: "GSE139294-DeepPlantCRE-h${model.net.d_model}-L${model.net.num_transformer_layers}-CNN${model.net.cnn_channels}-Dense${model.net.dense_dims}"
+    tags: ${tags}
+    group: "GSE139294_classification"

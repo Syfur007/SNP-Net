@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=mayocardial_bilstm
+# python train.py experiment=autism_autoencoder
 
 defaults:
-  - override /data: mayocardial
-  - override /model: bilstm
+  - override /data: autism
+  - override /model: autoencoder
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["mayocardial", "bilstm", "case_control"]
+tags: ["autism", "autoencoder", "case_control"]
 
-seed: 123545
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Mayocardial-BiLSTM-h${model.net.hidden_size}-L${model.net.num_layers}"
+    name: "Autism-Autoencoder-latent${model.net.latent_dim}-hidden${model.net.hidden_sizes}"
     tags: ${tags}
-    group: "mayocardial_classification"
+    group: "autism_classification"

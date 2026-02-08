@@ -12,7 +12,7 @@ defaults:
 
 tags: ["mental", "autoencoder", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Mental-Autoencoder-latent${model.net.latent_dim}"
+    name: "Mental-Autoencoder-latent${model.net.latent_dim}-hidden${model.net.hidden_sizes}"
     tags: ${tags}
     group: "mental_classification"

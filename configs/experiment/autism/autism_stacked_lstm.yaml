@@ -12,7 +12,7 @@ defaults:
 
 tags: ["autism", "stacked_lstm", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,7 +32,7 @@ callbacks:
 
 logger:
   wandb:
-    name: "Autism-StackedLSTM-${model.net.hidden_sizes}"
+    name: "Autism-StackedLSTM-${model.net.hidden_sizes}-w${model.net.window_size}-w${model.net.window_size}"
     tags: ${tags}
     group: "autism_classification"
   aim:

@@ -15,7 +15,7 @@ optimizer:
 
 net:
   _target_: src.models.components.deepplantcre_net.DeepPlantCRENet
-  num_snps: 1500  # DNA sequence length (1000 bp upstream + 500 bp downstream of TSS)
+  num_snps: 1000  # DNA sequence length (1000 bp upstream + 500 bp downstream of TSS)
   encoding_dim: 4  # One-hot encoding dimension (A, C, G, T)
   d_model: 4  # Transformer embedding dimension (fixed in DeepPlantCRE)
   nhead: 1  # Number of attention heads (fixed to 1 in DeepPlantCRE)

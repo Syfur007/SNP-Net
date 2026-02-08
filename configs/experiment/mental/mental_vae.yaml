@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=mayocardial_autoencoder
+# python train.py experiment=mental_vae
 
 defaults:
-  - override /data: mayocardial
-  - override /model: autoencoder
+  - override /data: mental
+  - override /model: vae
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["mayocardial", "autoencoder", "case_control"]
+tags: ["mental", "vae", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -32,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "Mayocardial-Autoencoder-latent${model.net.latent_dim}"
+    name: "Mental-VAE-latent${model.net.latent_dim}-h${model.net.hidden_sizes}"
     tags: ${tags}
-    group: "mayocardial_classification"
+    group: "mental_classification"

@@ -14,7 +14,7 @@ optimizer:
 
 net:
   _target_: src.models.components.dense_net.DenseNet
-  hidden_sizes: [512, 256, 128, 64]
+  hidden_sizes: [256, 128, 64]
   output_size: 2
   dropout: 0.3
   use_batch_norm: true

@@ -21,7 +21,7 @@ net:
   nhead: 8  # Number of attention heads
   num_transformer_layers: 2  # Number of transformer encoder layers
   cnn_channels: [64, 128, 32]  # CNN channel dimensions
-  dropout: 0.25  # Dropout rate
+  dropout: 0.3  # Dropout rate
   output_size: 2  # Number of output classes
   use_gradient_checkpointing: false  # Enable to save memory
 

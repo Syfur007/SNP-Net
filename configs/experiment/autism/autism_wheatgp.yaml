@@ -15,7 +15,7 @@ defaults:
 
 tags: ["autism", "wheatgp", "cnn", "lstm", "epistatic", "case_control"]
 
-seed: 12345
+seed: 42
 
 trainer:
   min_epochs: 10
@@ -35,40 +35,9 @@ callbacks:
     save_last: true
     filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
 
-model:
-  num_classes: 2
-  optimizer:
-    lr: 0.001
-    weight_decay: 0.0001
-    betas: [0.9, 0.999]
-  scheduler:
-    mode: min
-    factor: 0.5
-    patience: 5
-    min_lr: 1.0e-6
-  net:
-    num_snps: 2000  # Use 2000 SNPs for autism data
-    encoding_dim: 1  # Single value encoding
-    cnn_channels: [64, 128, 256]  # Multi-scale CNN feature extraction
-    lstm_hidden: 128  # LSTM hidden dimension for long-range dependencies
-    lstm_layers: 2  # 2-layer LSTM for complex patterns
-    dropout: 0.3  # Dropout for regularization
-    output_size: 2
-    use_gradient_checkpointing: false
-  compile: false
-
-data:
-  data_file: "data/FinalizedAutismData.csv"
-  labels_in_last_row: true
-  batch_size: 32
-  train_val_test_split: [0.7, 0.15, 0.15]
-  normalize: true
-  num_workers: 4
-  pin_memory: true
-
 logger:
   wandb:
-    name: "Autism-WheatGP-cnn256-lstm128-snps2000-bs32"
+    name: "Autism-WheatGP-cnn${model.net.cnn_channels}-lstm${model.net.lstm_hidden}"
     tags: ${tags}
     group: "autism_classification"
     notes: "WheatGP: CNN-LSTM hybrid for capturing local patterns and long-range epistatic effects in SNP data"
