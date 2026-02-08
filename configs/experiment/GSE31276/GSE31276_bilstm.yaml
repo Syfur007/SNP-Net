@@ -1,9 +1,10 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=GSE139294_bilstm
+# python train.py experiment=GSE31276_bilstm
+
 defaults:
-  - override /data: GSE139294
+  - override /data: GSE31276
   - override /model: bilstm
   - override /callbacks: default
   - override /trainer: default
@@ -31,6 +32,6 @@ callbacks:
 
 logger:
   wandb:
-    name: "GSE139294-lung_adenocarcinoma-BiLSTM-h${model.net.hidden_size}-L${model.net.num_layers}"
+    name: "GSE31276-lung_adenocarcinoma-BiLSTM-h${model.net.hidden_size}-L${model.net.num_layers}"
     tags: ${tags}
-    group: "GSE139294_classification"
+    group: "GSE31276_classification"

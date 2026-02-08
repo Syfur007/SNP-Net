@@ -54,3 +54,9 @@ model:
     dense_dims: [256, 128]
     dropout: 0.25
     output_size: 2
+
+logger:
+  wandb:
+    name: "GSE139294-DeepPlantCRE-h${model.net.d_model}-L${model.net.num_transformer_layers}-CNN${model.net.cnn_channels}-Dense${model.net.dense_dims}"
+    tags: ${tags}
+    group: "GSE139294_classification"

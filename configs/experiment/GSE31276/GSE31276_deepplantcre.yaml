@@ -1,17 +1,16 @@
 # @package _global_
 
 # to execute this experiment run:
-# python src/train.py experiment=GSE139294_deepplantcre
+# python src/train.py experiment=GSE31276_deepplantcre
 
 defaults:
-  - override /data: GSE139294
+  - override /data: GSE31276
   - override /model: deepplantcre
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-tags: ["GSE139294", "deepplantcre", "transformer", "cnn", "hybrid"]
-
+tags: ["GSE31276", "deepplantcre", "transformer", "cnn", "hybrid"]
 seed: 12345
 
 trainer:
@@ -54,3 +53,10 @@ model:
     dense_dims: [256, 128]
     dropout: 0.25
     output_size: 2
+
+
+logger:
+  wandb:
+    name: "GSE31276-DeepPlantCRE-h${model.net.d_model}-L${model.net.num_transformer_layers}-CNN${model.net.cnn_channels}-Dense${model.net.dense_dims}"
+    tags: ${tags}
+    group: "GSE31276_classification"
