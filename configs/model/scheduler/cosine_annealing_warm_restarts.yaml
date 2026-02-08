@@ -1,4 +1,4 @@
-﻿# Cosine Annealing with Warm Restarts (SGDR)
+# Cosine Annealing with Warm Restarts (SGDR)
 # Uses multiple restarts with increasing periods to help escape local minima
 # Useful for longer training or exploration
 

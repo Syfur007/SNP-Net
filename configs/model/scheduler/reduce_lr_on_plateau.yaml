@@ -1,4 +1,4 @@
-﻿# ReduceLROnPlateau - existing default scheduler (metric-based)
+# ReduceLROnPlateau - existing default scheduler (metric-based)
 # Reduces learning rate when validation metric plateaus
 # Recommended for adaptive training without knowing max_epochs
 

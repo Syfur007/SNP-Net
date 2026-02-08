@@ -1,0 +1,69 @@
+# @package _global_
+
+# to execute this experiment run:
+# python src/train.py experiment=GSE139294_wheatgp
+
+defaults:
+  - override /data: GSE139294
+  - override /model: wheatgp
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: wandb
+
+# WheatGP (CNN-LSTM) for GSE139294 classification
+# Best for capturing epistatic effects between distant SNPs
+
+tags: ["GSE139294", "wheatgp", "cnn", "lstm", "epistatic", "case_control"]
+
+seed: 42
+
+trainer:
+  min_epochs: 10
+  max_epochs: 100
+  gradient_clip_val: 1.0
+  
+callbacks:
+  early_stopping:
+    monitor: "val/loss"
+    patience: 5
+    mode: "min"
+  
+  model_checkpoint:
+    monitor: "val/auroc"
+    mode: "max"
+    save_top_k: 3
+    save_last: true
+    filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
+
+model:
+  num_classes: 2
+  optimizer:
+    lr: 0.001
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+  scheduler:
+    mode: min
+    factor: 0.5
+    patience: 5
+    min_lr: 1.0e-6
+  net:
+    num_snps: 2000  # Use 2000 SNPs for GSE139294 data
+    encoding_dim: 1  # Single value encoding
+    cnn_channels: [64, 128, 256]  # Multi-scale CNN feature extraction
+    lstm_hidden: 128  # LSTM hidden dimension for long-range dependencies
+    lstm_layers: 2  # 2-layer LSTM for complex patterns
+    dropout: 0.3  # Dropout for regularization
+    output_size: 2
+    use_gradient_checkpointing: false
+  compile: false
+
+
+
+logger:
+  wandb:
+    name: "GSE139294-WheatGP-cnn256-lstm128-snps2000-bs32"
+    tags: ${tags}
+    group: "GSE139294_classification"
+    notes: "WheatGP: CNN-LSTM hybrid for capturing local patterns and long-range epistatic effects in SNP data"
+  aim:
+    experiment: "GSE139294_wheatgp"

@@ -1,13 +1,13 @@
 _target_: src.data.datamodule.DataModule
 
 # ============================================
-# Mayocardial Dataset Configuration
+# GSE33355 Dataset Configuration
 # ============================================
-# SNP data for mayocardial case/control classification
+# SNP data for GSE33355 case/control classification
 # ============================================
 
 # Path to the CSV file containing SNP data
-data_file: "data/FinalizedMayocardialData.csv"
+data_file: "data/Finalized_GSE33355.csv"
 
 # Optional: Path to separate CSV file containing labels
 label_file: null
@@ -19,7 +19,7 @@ labels_in_last_row: true
 label_row_name: null
 
 # Train, validation, test split proportions (must sum to 1.0)
-train_val_test_split: [0.7, 0.15, 0.15]
+train_val_test_split: [0.7, 0.2, 0.1]
 
 # K-Fold Cross Validation (optional)
 # Set to null to use regular train/val/test split

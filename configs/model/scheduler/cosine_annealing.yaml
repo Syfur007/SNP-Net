@@ -1,4 +1,4 @@
-﻿# Cosine Annealing LR Scheduler
+# Cosine Annealing LR Scheduler
 # Reduces learning rate following cosine curve from initial LR to eta_min over T_max epochs
 # Recommended for models trained for a fixed number of epochs (known max_epochs)
 

@@ -1,13 +1,13 @@
 _target_: src.data.datamodule.DataModule
 
 # ============================================
-# GSE139294 Dataset Configuration
+# GSE31276 Dataset Configuration
 # ============================================
-# SNP data for GSE139294 case/control classification
+# SNP data for GSE31276 case/control classification
 # ============================================
 
 # Path to the CSV file containing SNP data
-data_file: "data/Finalized_GSE139294.csv"
+data_file: "data/Finalized_GSE31276.csv"
 
 # Optional: Path to separate CSV file containing labels
 label_file: null

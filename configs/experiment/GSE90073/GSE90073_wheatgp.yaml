@@ -1,20 +1,19 @@
 # @package _global_
 
 # to execute this experiment run:
-# python src/train.py experiment=mental_wheatgp
+# python src/train.py experiment=GSE90073_wheatgp
 
 defaults:
-  - override /data: GSE139294
+  - override /data: GSE90073
   - override /model: wheatgp
   - override /callbacks: default
   - override /trainer: default
   - override /logger: wandb
 
-# WheatGP (CNN-LSTM) for mental health classification
+# WheatGP (CNN-LSTM) for GSE90073 classification
 # Best for capturing epistatic effects between distant SNPs
 
-tags: ["mental", "wheatgp", "cnn", "lstm", "epistatic", "case_control"]
-
+tags: ["GSE90073", "wheatgp", "cnn", "lstm", "epistatic", "case_control"]
 seed: 42
 
 trainer:
@@ -47,7 +46,7 @@ model:
     patience: 5
     min_lr: 1.0e-6
   net:
-    num_snps: 2000  # Use 2000 SNPs for mental health data
+    num_snps: 2000  # Use 2000 SNPs for GSE90073 data
     encoding_dim: 1  # Single value encoding
     cnn_channels: [64, 128, 256]  # Multi-scale CNN feature extraction
     lstm_hidden: 128  # LSTM hidden dimension for long-range dependencies
@@ -57,20 +56,11 @@ model:
     use_gradient_checkpointing: false
   compile: false
 
-data:
-  data_file: "data/FinalizedMentalData.csv"
-  labels_in_last_row: true
-  batch_size: 32
-  train_val_test_split: [0.7, 0.15, 0.15]
-  normalize: true
-  num_workers: 4
-  pin_memory: true
-
 logger:
   wandb:
-    name: "Mental-WheatGP-cnn256-lstm128-snps2000-bs32"
+    name: "GSE90073-WheatGP-cnn256-lstm128-snps2000-bs32"
     tags: ${tags}
-    group: "mental_classification"
+    group: "GSE90073_classification"
     notes: "WheatGP: CNN-LSTM hybrid for capturing local patterns and long-range epistatic effects in SNP data"
   aim:
-    experiment: "mental_wheatgp"
+    experiment: "GSE90073_wheatgp"
