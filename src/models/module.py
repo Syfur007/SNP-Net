@@ -1,6 +1,8 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
+import numpy as np
 import torch
+import matplotlib.pyplot as plt
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification import (
@@ -85,6 +87,123 @@ class LitModule(LightningModule):
         self.val_acc_best = MaxMetric()
         self.val_auroc_best = MaxMetric()
         self.val_f1_best = MaxMetric()
+
+    def _compute_sensitivity_specificity(
+        self, confusion_matrix: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
+        """Compute sensitivity and specificity from a confusion matrix.
+
+        :param confusion_matrix: Confusion matrix tensor of shape (C, C).
+        :return: Tuple of (sensitivity_macro, specificity_macro, sensitivity_per_class, specificity_per_class).
+        """
+        cm = confusion_matrix.float()
+        num_classes = cm.size(0)
+
+        sensitivity_per_class: List[torch.Tensor] = []
+        specificity_per_class: List[torch.Tensor] = []
+
+        for class_idx in range(num_classes):
+            tp = cm[class_idx, class_idx]
+            fn = cm[class_idx, :].sum() - tp
+            fp = cm[:, class_idx].sum() - tp
+            tn = cm.sum() - (tp + fn + fp)
+
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else torch.tensor(0.0, device=cm.device)
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else torch.tensor(0.0, device=cm.device)
+
+            sensitivity_per_class.append(sensitivity)
+            specificity_per_class.append(specificity)
+
+        sensitivity_macro = torch.stack(sensitivity_per_class).mean()
+        specificity_macro = torch.stack(specificity_per_class).mean()
+
+        return sensitivity_macro, specificity_macro, sensitivity_per_class, specificity_per_class
+
+    def _log_confusion_matrix_image(self, confusion_matrix: torch.Tensor, stage: str) -> None:
+        """Log confusion matrix as an image to all available loggers.
+
+        :param confusion_matrix: Confusion matrix tensor of shape (C, C).
+        :param stage: Stage name, e.g., "test".
+        """
+        if not self.trainer or not self.trainer.loggers:
+            return
+
+        if not self.trainer.is_global_zero:
+            return
+
+        cm = confusion_matrix.detach().cpu().numpy()
+        num_classes = cm.shape[0]
+        class_labels = [str(i) for i in range(num_classes)]
+
+        fig, ax = plt.subplots(figsize=(6, 5), dpi=300)
+        im = ax.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
+        ax.figure.colorbar(im, ax=ax)
+        ax.set(
+            xticks=np.arange(num_classes),
+            yticks=np.arange(num_classes),
+            xticklabels=class_labels,
+            yticklabels=class_labels,
+            ylabel="True label",
+            xlabel="Predicted label",
+        )
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+        threshold = cm.max() / 2.0 if cm.max() > 0 else 0.0
+        for i in range(num_classes):
+            for j in range(num_classes):
+                ax.text(
+                    j,
+                    i,
+                    f"{int(cm[i, j])}",
+                    ha="center",
+                    va="center",
+                    color="white" if cm[i, j] > threshold else "black",
+                )
+
+        fig.tight_layout()
+
+        tag = f"{stage}/confusion_matrix"
+        for logger in self.trainer.loggers:
+            experiment = getattr(logger, "experiment", None)
+            if experiment is None:
+                continue
+
+            # TensorBoard
+            if hasattr(experiment, "add_figure"):
+                experiment.add_figure(tag, fig, global_step=self.global_step)
+                continue
+
+            # Weights & Biases
+            if experiment.__class__.__module__.startswith("wandb"):
+                try:
+                    import wandb
+
+                    experiment.log({tag: wandb.Image(fig)}, step=self.global_step)
+                except Exception:
+                    pass
+                continue
+
+            # MLflow / Comet / Neptune or other loggers with figure support
+            if hasattr(experiment, "log_figure"):
+                try:
+                    experiment.log_figure(figure=fig, figure_name=f"{tag}.png", step=self.global_step)
+                except Exception:
+                    try:
+                        experiment.log_figure(figure=fig, figure_name=f"{tag}.png")
+                    except Exception:
+                        pass
+                continue
+
+            if hasattr(experiment, "log_image"):
+                try:
+                    experiment.log_image(name=tag, image=fig, step=self.global_step)
+                except Exception:
+                    try:
+                        experiment.log_image(tag, fig)
+                    except Exception:
+                        pass
+
+        plt.close(fig)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -244,7 +363,21 @@ class LitModule(LightningModule):
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
-        pass
+        test_cm = self.test_confusion_matrix.compute()
+        test_sensitivity, test_specificity, test_sensitivity_pc, test_specificity_pc = (
+            self._compute_sensitivity_specificity(test_cm)
+        )
+
+        self.log("test/sensitivity", test_sensitivity, sync_dist=True, prog_bar=False)
+        self.log("test/specificity", test_specificity, sync_dist=True, prog_bar=False)
+
+        if self.hparams.num_classes > 2:
+            for idx, value in enumerate(test_sensitivity_pc):
+                self.log(f"test/sensitivity_class_{idx}", value, sync_dist=True, prog_bar=False)
+            for idx, value in enumerate(test_specificity_pc):
+                self.log(f"test/specificity_class_{idx}", value, sync_dist=True, prog_bar=False)
+
+        self._log_confusion_matrix_image(test_cm, stage="test")
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
