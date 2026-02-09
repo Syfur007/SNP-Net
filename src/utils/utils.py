@@ -26,6 +26,25 @@ def apply_experiment_overrides(cfg: DictConfig) -> None:
             cfg[key] = cfg.experiment[key]
 
 
+def apply_debug_overrides(cfg: DictConfig) -> None:
+    """Promote debug-scoped fields to the root config.
+
+    This allows debug configs (e.g., debug=fdr_xpu) to override trainer/data/loggers.
+
+    :param cfg: A DictConfig object containing the config tree.
+    """
+    if not cfg.get("debug"):
+        return
+
+    OmegaConf.set_struct(cfg, False)
+    for key in ("trainer", "data", "callbacks", "logger", "extras", "task_name", "tags", "train", "test"):
+        if key in cfg.debug:
+            if key in cfg and OmegaConf.is_config(cfg[key]) and OmegaConf.is_config(cfg.debug[key]):
+                cfg[key] = OmegaConf.merge(cfg[key], cfg.debug[key])
+            else:
+                cfg[key] = cfg.debug[key]
+
+
 def extras(cfg: DictConfig) -> None:
     """Applies optional utilities before the task is started.
 

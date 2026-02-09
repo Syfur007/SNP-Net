@@ -28,12 +28,14 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils import (
     RankedLogger,
+    apply_debug_overrides,
     apply_experiment_overrides,
     extras,
     get_metric_value,
     instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
+    patch_lightning_xpu_parse_devices,
     task_wrapper,
 )
 
@@ -52,6 +54,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :return: A tuple with metrics and dict with all instantiated objects.
     """
     apply_experiment_overrides(cfg)
+    apply_debug_overrides(cfg)
+    patch_lightning_xpu_parse_devices()
 
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):

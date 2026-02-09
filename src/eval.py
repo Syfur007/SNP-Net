@@ -29,6 +29,7 @@ from src.utils import (
     extras,
     instantiate_loggers,
     log_hyperparameters,
+    patch_lightning_xpu_parse_devices,
     task_wrapper,
 )
 
@@ -46,6 +47,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
     assert cfg.ckpt_path
+    patch_lightning_xpu_parse_devices()
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
