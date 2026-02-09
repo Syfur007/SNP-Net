@@ -2,11 +2,28 @@ import warnings
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from src.utils import pylogger, rich_utils
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
+
+def apply_experiment_overrides(cfg: DictConfig) -> None:
+    """Promote experiment-scoped fields to the root config.
+
+    This keeps the training code uniform, while still allowing experiment configs
+    to define data/model/trainer/logger overrides under `cfg.experiment`.
+
+    :param cfg: A DictConfig object containing the config tree.
+    """
+    if not cfg.get("experiment"):
+        return
+
+    OmegaConf.set_struct(cfg, False)
+    for key in ("data", "model", "callbacks", "trainer", "logger", "tags", "seed"):
+        if key in cfg.experiment:
+            cfg[key] = cfg.experiment[key]
 
 
 def extras(cfg: DictConfig) -> None:

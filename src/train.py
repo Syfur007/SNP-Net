@@ -28,6 +28,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils import (
     RankedLogger,
+    apply_experiment_overrides,
     extras,
     get_metric_value,
     instantiate_callbacks,
@@ -50,6 +51,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
+    apply_experiment_overrides(cfg)
+
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)

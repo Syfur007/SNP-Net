@@ -247,6 +247,70 @@ class LitModule(LightningModule):
         probs = torch.softmax(logits, dim=1)
         return loss, preds, probs, y
 
+    def _get_probs_for_auroc(self, probs: torch.Tensor) -> torch.Tensor:
+        """Select probability tensor for AUROC computation based on number of classes."""
+        if self.hparams.num_classes == 2:
+            return probs[:, 1]
+        return probs
+
+    def _update_and_log_metrics(
+        self,
+        stage: str,
+        loss: torch.Tensor,
+        preds: torch.Tensor,
+        probs_for_auroc: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> None:
+        """Update metric objects and log them for the given stage."""
+        if stage == "train":
+            self.train_loss(loss)
+            self.train_acc(preds, targets)
+            self.train_precision(preds, targets)
+            self.train_recall(preds, targets)
+            self.train_f1(preds, targets)
+            self.train_auroc(probs_for_auroc, targets)
+
+            self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("train/precision", self.train_precision, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("train/recall", self.train_recall, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("train/f1", self.train_f1, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("train/auroc", self.train_auroc, on_step=False, on_epoch=True, prog_bar=False)
+            return
+
+        if stage == "val":
+            self.val_loss(loss)
+            self.val_acc(preds, targets)
+            self.val_precision(preds, targets)
+            self.val_recall(preds, targets)
+            self.val_f1(preds, targets)
+            self.val_auroc(probs_for_auroc, targets)
+            self.val_confusion_matrix(preds, targets)
+
+            self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("val/precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("val/recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("val/f1", self.val_f1, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("val/auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True)
+            return
+
+        if stage == "test":
+            self.test_loss(loss)
+            self.test_acc(preds, targets)
+            self.test_precision(preds, targets)
+            self.test_recall(preds, targets)
+            self.test_f1(preds, targets)
+            self.test_auroc(probs_for_auroc, targets)
+            self.test_confusion_matrix(preds, targets)
+
+            self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("test/precision", self.test_precision, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("test/recall", self.test_recall, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("test/f1", self.test_f1, on_step=False, on_epoch=True, prog_bar=False)
+            self.log("test/auroc", self.test_auroc, on_step=False, on_epoch=True, prog_bar=True)
+
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
@@ -258,26 +322,8 @@ class LitModule(LightningModule):
         """
         loss, preds, probs, targets = self.model_step(batch)
 
-        # For binary classification, extract probability of positive class
-        if self.hparams.num_classes == 2:
-            probs_for_auroc = probs[:, 1]  # Probability of class 1
-        else:
-            probs_for_auroc = probs
-
-        # update and log metrics
-        self.train_loss(loss)
-        self.train_acc(preds, targets)
-        self.train_precision(preds, targets)
-        self.train_recall(preds, targets)
-        self.train_f1(preds, targets)
-        self.train_auroc(probs_for_auroc, targets)
-
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/precision", self.train_precision, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("train/recall", self.train_recall, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("train/f1", self.train_f1, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("train/auroc", self.train_auroc, on_step=False, on_epoch=True, prog_bar=False)
+        probs_for_auroc = self._get_probs_for_auroc(probs)
+        self._update_and_log_metrics("train", loss, preds, probs_for_auroc, targets)
 
         # return loss or backpropagation will fail
         return loss
@@ -294,27 +340,8 @@ class LitModule(LightningModule):
         """
         loss, preds, probs, targets = self.model_step(batch)
 
-        # For binary classification, extract probability of positive class
-        if self.hparams.num_classes == 2:
-            probs_for_auroc = probs[:, 1]  # Probability of class 1
-        else:
-            probs_for_auroc = probs
-
-        # update and log metrics
-        self.val_loss(loss)
-        self.val_acc(preds, targets)
-        self.val_precision(preds, targets)
-        self.val_recall(preds, targets)
-        self.val_f1(preds, targets)
-        self.val_auroc(probs_for_auroc, targets)
-        self.val_confusion_matrix(preds, targets)
-
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("val/recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("val/f1", self.val_f1, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("val/auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True)
+        probs_for_auroc = self._get_probs_for_auroc(probs)
+        self._update_and_log_metrics("val", loss, preds, probs_for_auroc, targets)
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
@@ -339,27 +366,8 @@ class LitModule(LightningModule):
         """
         loss, preds, probs, targets = self.model_step(batch)
 
-        # For binary classification, extract probability of positive class
-        if self.hparams.num_classes == 2:
-            probs_for_auroc = probs[:, 1]  # Probability of class 1
-        else:
-            probs_for_auroc = probs
-
-        # update and log metrics
-        self.test_loss(loss)
-        self.test_acc(preds, targets)
-        self.test_precision(preds, targets)
-        self.test_recall(preds, targets)
-        self.test_f1(preds, targets)
-        self.test_auroc(probs_for_auroc, targets)
-        self.test_confusion_matrix(preds, targets)
-
-        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/precision", self.test_precision, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("test/recall", self.test_recall, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("test/f1", self.test_f1, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("test/auroc", self.test_auroc, on_step=False, on_epoch=True, prog_bar=True)
+        probs_for_auroc = self._get_probs_for_auroc(probs)
+        self._update_and_log_metrics("test", loss, preds, probs_for_auroc, targets)
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
