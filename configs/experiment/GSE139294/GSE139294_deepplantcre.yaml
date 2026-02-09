@@ -29,14 +29,6 @@ callbacks:
     save_top_k: 3
     filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
 
-model:
-  scheduler:
-    mode: min
-    factor: 0.1
-    patience: 5
-    min_lr: 1.0e-7
-  net:
-
 logger:
   wandb:
     name: "GSE139294-DeepPlantCRE-h${model.net.d_model}-L${model.net.num_transformer_layers}-CNN${model.net.cnn_channels}-Dense${model.net.dense_dims}"

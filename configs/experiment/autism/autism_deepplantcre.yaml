@@ -36,29 +36,6 @@ callbacks:
     save_last: true
     filename: "epoch_{epoch:03d}_auroc_{val/auroc:.4f}"
 
-model:
-  num_classes: 2
-  optimizer:
-    lr: 0.0001  # DeepPlantCRE learning rate
-    weight_decay: 0.0
-    betas: [0.9, 0.999]
-  scheduler:
-    mode: min
-    factor: 0.1  # DeepPlantCRE LR reduction factor
-    patience: 5  # DeepPlantCRE LR scheduler patience
-    min_lr: 1.0e-7
-  net:
-    num_snps: 2000  # Adjust for autism dataset
-    encoding_dim: 4
-    d_model: 4
-    nhead: 1
-    num_transformer_layers: 1
-    d_ff: 2048
-    cnn_channels: [64, 128, 32]
-    dense_dims: [256, 128]
-    dropout: 0.25
-    output_size: 2
-
 logger:
   wandb:
     name: "autism-DeepPlantCRE-h${model.net.d_model}-L${model.net.num_transformer_layers}-CNN${model.net.cnn_channels}-Dense${model.net.dense_dims}"
