@@ -702,6 +702,7 @@ Default logging structure:
 │   │   │   │   ├── csv                     # Csv logs
 │   │   │   │   ├── wandb                   # Weights&Biases logs
 │   │   │   │   ├── checkpoints             # Training checkpoints
+│   │   │   │   ├── exports                 # Structured experiment exports (CSV/JSON/NPZ)
 │   │   │   │   └── ...                     # Any other thing saved during training
 │   │   │   └── ...
 │   │   │
@@ -720,6 +721,10 @@ Default logging structure:
 
 You can change this structure by modifying paths in [hydra configuration](configs/hydra).
 
+Exported artifacts include dataset metadata, preprocessing statistics, feature-selection outputs,
+epoch metrics, test curves/calibration, robustness checks, and interpretability payloads. Each
+export run is keyed by experiment, fold, and seed under logs/.../exports/fold_*/seed_*.
+
 <br>
 
 ## Experiment Tracking
@@ -733,6 +738,8 @@ python train.py logger=logger_name
 ```
 
 You can use many of them at once (see [configs/logger/many_loggers.yaml](configs/logger/many_loggers.yaml) for example).
+
+Default logger is W&B + CSV via [configs/logger/wandb_csv.yaml](configs/logger/wandb_csv.yaml).
 
 You can also write your own logger.
 

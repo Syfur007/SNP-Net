@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
+import os
+
 import hydra
 import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
@@ -26,6 +28,10 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils import (
     RankedLogger,
+    export_config,
+    export_run_manifest,
+    get_env_context,
+    get_export_dir,
     extras,
     instantiate_loggers,
     log_hyperparameters,
@@ -48,6 +54,16 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     assert cfg.ckpt_path
     patch_lightning_xpu_parse_devices()
+
+    export_dir = get_export_dir(cfg)
+    os.environ["SNP_EXPORT_DIR"] = str(export_dir)
+    os.environ["SNP_EXPERIMENT_ID"] = export_dir.name
+    os.environ["SNP_MODEL_NAME"] = str(cfg.model.get("_target_"))
+    os.environ["SNP_SEED"] = str(cfg.get("seed"))
+    os.environ["SNP_TASK_NAME"] = str(cfg.get("task_name"))
+    os.environ.pop("SNP_FOLD", None)
+    export_config(cfg, export_dir)
+    export_run_manifest(export_dir, extra=get_env_context())
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)

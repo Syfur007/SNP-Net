@@ -80,6 +80,7 @@ class DPCformerNet(nn.Module):
         self.dropout_rate = dropout
         self.output_size = output_size
         self.use_gradient_checkpointing = use_gradient_checkpointing
+        self.last_attention_weights = None
         
         # Input projection: from encoding_dim to hidden_dim
         self.input_projection = nn.Linear(encoding_dim, hidden_dim)
@@ -177,12 +178,16 @@ class DPCformerNet(nn.Module):
         # Multi-head self-attention
         if self.use_gradient_checkpointing and self.training:
             attn_out = checkpoint(
-                lambda q, k, v: self.attention(q, k, v)[0],
+                lambda q, k, v: self.attention(q, k, v, need_weights=True, average_attn_weights=False)[0],
                 x_cnn, x_cnn, x_cnn,
                 use_reentrant=False
             )
+            self.last_attention_weights = None
         else:
-            attn_out, _ = self.attention(x_cnn, x_cnn, x_cnn)
+            attn_out, attn_weights = self.attention(
+                x_cnn, x_cnn, x_cnn, need_weights=True, average_attn_weights=False
+            )
+            self.last_attention_weights = attn_weights.detach()
         x = self.norm1(x_cnn + attn_out)  # Residual + LayerNorm
         
         # Feed-forward network

@@ -87,6 +87,45 @@ class ResidualCNNBlock(nn.Module):
         return out
 
 
+class TransformerEncoderLayerWithAttn(nn.TransformerEncoderLayer):
+    """Transformer encoder layer that stores attention weights."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.last_attention_weights = None
+
+    def forward(
+        self,
+        src,
+        src_mask=None,
+        src_key_padding_mask=None,
+        is_causal: bool = False,
+    ):
+        x = src
+        if self.norm_first:
+            x = x + self._sa_block_with_weights(self.norm1(x), src_mask, src_key_padding_mask, is_causal)
+            x = x + self._ff_block(self.norm2(x))
+        else:
+            sa_out = self._sa_block_with_weights(x, src_mask, src_key_padding_mask, is_causal)
+            x = self.norm1(x + sa_out)
+            x = self.norm2(x + self._ff_block(x))
+        return x
+
+    def _sa_block_with_weights(self, x, attn_mask, key_padding_mask, is_causal):
+        attn_output, attn_weights = self.self_attn(
+            x,
+            x,
+            x,
+            attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask,
+            need_weights=True,
+            average_attn_weights=False,
+            is_causal=is_causal,
+        )
+        self.last_attention_weights = attn_weights.detach()
+        return self.dropout1(attn_output)
+
+
 class TransformerCNNNet(nn.Module):
     """
     Transformer-CNN Hybrid for SNP-based genomic prediction
@@ -151,6 +190,7 @@ class TransformerCNNNet(nn.Module):
         self.dropout_rate = dropout
         self.output_size = output_size
         self.use_gradient_checkpointing = use_gradient_checkpointing
+        self.last_attention_weights = None
         
         # Input embedding
         self.embedding = nn.Linear(encoding_dim, d_model)
@@ -159,7 +199,7 @@ class TransformerCNNNet(nn.Module):
         self.pos_encoder = PositionalEncoding(d_model, dropout)
         
         # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(
+        encoder_layer = TransformerEncoderLayerWithAttn(
             d_model=d_model,
             nhead=nhead,
             dim_feedforward=2048,
@@ -230,8 +270,17 @@ class TransformerCNNNet(nn.Module):
         # Transformer encoding (capture long-range dependencies)
         if self.use_gradient_checkpointing and self.training:
             x = checkpoint(self.transformer_encoder, x, use_reentrant=False)
+            self.last_attention_weights = None
         else:
             x = self.transformer_encoder(x)  # (batch, num_snps, d_model)
+            try:
+                self.last_attention_weights = [
+                    layer.last_attention_weights
+                    for layer in self.transformer_encoder.layers
+                    if hasattr(layer, "last_attention_weights")
+                ]
+            except Exception:
+                self.last_attention_weights = None
         
         # Transpose for CNN: (batch, d_model, num_snps)
         x = x.transpose(1, 2)

@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
+import os
+
 import hydra
 import lightning as L
 import rootutils
@@ -30,6 +32,10 @@ from src.utils import (
     RankedLogger,
     apply_debug_overrides,
     apply_experiment_overrides,
+    export_config,
+    export_run_manifest,
+    get_env_context,
+    get_export_dir,
     extras,
     get_metric_value,
     instantiate_callbacks,
@@ -60,6 +66,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
+
+    export_dir = get_export_dir(cfg)
+    os.environ["SNP_EXPORT_DIR"] = str(export_dir)
+    os.environ["SNP_EXPERIMENT_ID"] = export_dir.name
+    os.environ["SNP_MODEL_NAME"] = str(cfg.model.get("_target_"))
+    os.environ["SNP_SEED"] = str(cfg.get("seed"))
+    os.environ["SNP_TASK_NAME"] = str(cfg.get("task_name"))
+    os.environ.pop("SNP_FOLD", None)
+    export_config(cfg, export_dir)
+    export_run_manifest(export_dir, extra=get_env_context())
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -97,8 +113,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         # Some Lightning versions or configurations may not create an epoch_NNN.ckpt
         # file when resuming; tests expect such a file (e.g. epoch_001.ckpt).
         try:
-            import os
-
             ckpt_dir = os.path.join(cfg.paths.output_dir, "checkpoints")
             # final epoch index (zero-based)
             final_epoch_idx = max(0, trainer.current_epoch - 1)
@@ -148,6 +162,15 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
 
+    export_dir = get_export_dir(cfg)
+    os.environ["SNP_EXPORT_DIR"] = str(export_dir)
+    os.environ["SNP_EXPERIMENT_ID"] = export_dir.name
+    os.environ["SNP_MODEL_NAME"] = str(cfg.model.get("_target_"))
+    os.environ["SNP_SEED"] = str(cfg.get("seed"))
+    os.environ["SNP_TASK_NAME"] = str(cfg.get("task_name"))
+    export_config(cfg, export_dir)
+    export_run_manifest(export_dir, extra=get_env_context())
+
     num_folds = cfg.data.num_folds
     log.info(f"\n{'=' * 80}")
     log.info(f"Starting {num_folds}-Fold Cross Validation")
@@ -158,6 +181,7 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Train on each fold
     for fold_idx in range(num_folds):
+        os.environ["SNP_FOLD"] = str(fold_idx)
         log.info(f"\n{'=' * 80}")
         log.info(f"Starting Fold {fold_idx + 1}/{num_folds}")
         log.info(f"{'=' * 80}\n")
@@ -243,6 +267,23 @@ def train_kfold(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Calculate average metrics across folds
     metric_dict = _aggregate_fold_results(all_fold_results)
+
+    try:
+        from src.utils.experiment_artifacts import save_json, save_csv
+
+        save_json(export_dir / "kfold_summary.json", metric_dict)
+        save_json(export_dir / "kfold_results.json", {"folds": all_fold_results})
+
+        rows = []
+        for fold_result in all_fold_results:
+            fold = fold_result.get("fold")
+            for key, value in fold_result.get("test_metrics", {}).items():
+                if hasattr(value, "item"):
+                    value = value.item()
+                rows.append({"fold": fold, "metric": key, "value": value})
+        save_csv(export_dir / "kfold_metrics.csv", rows)
+    except Exception:
+        pass
     
     log.info("Average metrics across all folds:")
     for key, value in metric_dict.items():

@@ -36,6 +36,18 @@ Feature selection is integrated into the `DataModule` and applied during the `se
 - Selected features are saved in checkpoints for reproducible inference
 - No code changes required to enable/disable
 
+### Exported Artifacts
+
+When training runs, the active feature-selection pipeline automatically exports structured outputs to
+`logs/.../exports/fold_*/seed_*/`:
+
+- `selected_snps.csv` (final SNP list with ranks and scores)
+- `feature_scores.npy` (full score vector in original feature space)
+- `feature_pipeline_stages.json` and `feature_pipeline_summary.csv` (pipeline metadata)
+- `preprocessing_summary.json` (feature counts before/after)
+- `snp_missingness_maf.csv` (missingness + MAF for each SNP)
+- `dataset_metadata.json` (split indices, class ratios, and seeds)
+
 ## Available Methods
 
 SNP-Net provides five feature selection methods plus multi-stage pipeline support:

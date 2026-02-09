@@ -116,6 +116,14 @@ class DataModule(LightningDataModule):
         self._selected_indices: Optional[np.ndarray] = None
         self._feature_scores: Optional[np.ndarray] = None
         self._feature_stages: Optional[list] = None  # For pipeline selection
+        self._snp_ids: Optional[list] = None
+        self._sample_ids: Optional[list] = None
+        self._missingness_per_snp: Optional[np.ndarray] = None
+        self._maf_per_snp: Optional[np.ndarray] = None
+        self._label_mapping: Dict[str, int] = {"case": 1, "control": 0}
+        self._raw_class_counts: Optional[Dict[str, int]] = None
+        self._split_class_stats: Optional[Dict[str, Dict[str, Any]]] = None
+        self._split_indices: Optional[Dict[str, Any]] = None
 
     @property
     def num_classes(self) -> int:
@@ -188,6 +196,7 @@ class DataModule(LightningDataModule):
             # Store number of features and classes
             self._num_features = data.shape[1]
             self._num_classes = len(torch.unique(labels))
+            self._raw_class_counts = self._compute_class_stats(labels)
             
             # Create full dataset BEFORE preprocessing to enable proper splitting
             print("[SNP DataModule] Creating dataset (raw data)...")
@@ -207,6 +216,21 @@ class DataModule(LightningDataModule):
                 self._setup_regular_split(full_dataset)
                 print(f"[SNP DataModule] [OK] Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
                 log.info(f"Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+
+            # Store split indices before preprocessing overwrites Subset objects
+            split_indices = {}
+            if isinstance(self.data_train, Subset):
+                split_indices["train_indices"] = list(self.data_train.indices)
+            if isinstance(self.data_val, Subset):
+                split_indices["val_indices"] = list(self.data_val.indices)
+            if isinstance(self.data_test, Subset):
+                split_indices["test_indices"] = list(self.data_test.indices)
+            if self.fold_indices is not None:
+                split_indices["fold_indices"] = [
+                    {"train": train_idx.tolist(), "val": val_idx.tolist()}
+                    for train_idx, val_idx in self.fold_indices
+                ]
+            self._split_indices = split_indices
             
             # NOW apply preprocessing (normalization + feature selection) to each split
             # This ensures no data leakage: mean/std and feature selection computed on train set only
@@ -215,6 +239,20 @@ class DataModule(LightningDataModule):
             self._apply_preprocessing_to_splits()
             print(f"[SNP DataModule] [OK] Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
             log.info(f"Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+
+            # Compute split class statistics and export metadata
+            train_labels = self._extract_subset_data(self.data_train)[1]
+            val_labels = self._extract_subset_data(self.data_val)[1]
+            test_labels = self._extract_subset_data(self.data_test)[1]
+            self._split_class_stats = {
+                "train": self._compute_class_stats(train_labels),
+                "val": self._compute_class_stats(val_labels),
+                "test": self._compute_class_stats(test_labels),
+            }
+
+            self._export_dataset_metadata()
+            self._export_preprocessing_metadata()
+            self._export_feature_selection_metadata()
     
     def _setup_regular_split(self, full_dataset: Dataset) -> None:
         """Setup regular train/val/test split.
@@ -453,6 +491,32 @@ class DataModule(LightningDataModule):
         )
         print(f"[SNP DataModule] CSV loaded: {df.shape[0]} rows × {df.shape[1]} columns")
         log.info(f"CSV loaded: {df.shape[0]} rows × {df.shape[1]} columns")
+
+        # Compute missingness and MAF statistics before label extraction
+        df_features = df
+        if self.hparams.labels_in_last_row:
+            df_features = df.iloc[:-1]
+        elif self.hparams.label_row_name is not None and self.hparams.label_row_name in df.index:
+            df_features = df.drop(self.hparams.label_row_name)
+
+        # Capture identifiers aligned to feature rows
+        try:
+            self._sample_ids = list(df.columns)
+            self._snp_ids = list(df_features.index)
+        except Exception:
+            self._sample_ids = None
+            self._snp_ids = None
+
+        try:
+            df_numeric = df_features.apply(pd.to_numeric, errors="coerce")
+            self._missingness_per_snp = df_numeric.isna().mean(axis=1).values
+            values = df_numeric.values.astype(float)
+            mean_allele = np.nanmean(values, axis=1)
+            maf = np.minimum(mean_allele / 2.0, 1.0 - mean_allele / 2.0)
+            self._maf_per_snp = np.nan_to_num(maf, nan=0.0)
+        except Exception:
+            self._missingness_per_snp = None
+            self._maf_per_snp = None
         
         # Load or extract labels
         if self.hparams.label_file is not None:
@@ -548,6 +612,161 @@ class DataModule(LightningDataModule):
                     )
         
         return numeric_labels
+
+    def _get_export_run_dir(self) -> Optional[str]:
+        import os
+        from pathlib import Path
+
+        base = os.getenv("SNP_EXPORT_DIR")
+        if not base:
+            return None
+
+        run_dir = Path(base)
+        fold = os.getenv("SNP_FOLD")
+        seed = os.getenv("SNP_SEED")
+        if fold is not None:
+            run_dir = run_dir / f"fold_{fold}"
+        if seed is not None:
+            run_dir = run_dir / f"seed_{seed}"
+
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return str(run_dir)
+
+    def _compute_class_stats(self, labels: torch.Tensor) -> Dict[str, Any]:
+        unique, counts = torch.unique(labels, return_counts=True)
+        total = int(counts.sum().item())
+        stats = {}
+        for cls, cnt in zip(unique.tolist(), counts.tolist()):
+            stats[str(cls)] = {
+                "count": int(cnt),
+                "ratio": float(cnt / total) if total > 0 else 0.0,
+            }
+        return stats
+
+    def _export_dataset_metadata(self) -> None:
+        import os
+        from src.utils.experiment_artifacts import save_json
+        from pathlib import Path
+
+        run_dir = self._get_export_run_dir()
+        if run_dir is None:
+            return
+
+        export_path = Path(run_dir)
+
+        metadata = {
+            "data_file": self.hparams.data_file,
+            "label_file": self.hparams.label_file,
+            "labels_in_last_row": self.hparams.labels_in_last_row,
+            "label_row_name": self.hparams.label_row_name,
+            "has_header": self.hparams.has_header,
+            "has_index": self.hparams.has_index,
+            "num_samples": int(self.data_train.__len__() + self.data_val.__len__() + self.data_test.__len__()),
+            "num_features": int(self.num_features),
+            "num_classes": int(self.num_classes),
+            "raw_class_counts": self._raw_class_counts,
+            "split_class_stats": self._split_class_stats,
+            "label_mapping": self._label_mapping,
+            "seed": os.getenv("SNP_SEED", 42),
+        }
+
+        metadata["split_indices"] = self._split_indices
+        save_json(export_path / "dataset_metadata.json", metadata)
+
+    def _export_preprocessing_metadata(self) -> None:
+        from src.utils.experiment_artifacts import save_csv, save_json, save_numpy
+        from pathlib import Path
+
+        run_dir = self._get_export_run_dir()
+        if run_dir is None:
+            return
+
+        export_path = Path(run_dir)
+
+        if self.mean is not None and self.std is not None:
+            save_numpy(export_path / "normalization_mean.npy", self.mean.detach().cpu().numpy())
+            save_numpy(export_path / "normalization_std.npy", self.std.detach().cpu().numpy())
+
+        if self._snp_ids is not None and self._missingness_per_snp is not None:
+            rows = []
+            maf = self._maf_per_snp if self._maf_per_snp is not None else None
+            for idx, snp_id in enumerate(self._snp_ids):
+                row = {
+                    "snp_id": snp_id,
+                    "missing_rate": float(self._missingness_per_snp[idx]),
+                }
+                if maf is not None:
+                    row["maf"] = float(maf[idx])
+                rows.append(row)
+            save_csv(export_path / "snp_missingness_maf.csv", rows)
+
+        save_json(
+            export_path / "preprocessing_summary.json",
+            {
+                "normalized": bool(self.hparams.normalize),
+                "feature_selection": self.hparams.feature_selection,
+                "num_features_before": int(self._num_features) if hasattr(self, "_num_features") else None,
+                "num_features_after": int(self.num_features),
+            },
+        )
+
+    def _export_feature_selection_metadata(self) -> None:
+        if self.hparams.feature_selection is None:
+            return
+
+        from src.utils.experiment_artifacts import save_csv, save_json, save_numpy
+        from pathlib import Path
+
+        run_dir = self._get_export_run_dir()
+        if run_dir is None:
+            return
+
+        export_path = Path(run_dir)
+
+        if self._selected_indices is not None:
+            selected_indices = np.array(self._selected_indices)
+            scores = np.array(self._feature_scores) if self._feature_scores is not None else None
+            rows = []
+            if self._snp_ids is None:
+                snp_ids = [f"snp_{i}" for i in range(len(selected_indices))]
+            else:
+                snp_ids = [self._snp_ids[i] for i in selected_indices]
+
+            ranks = None
+            if scores is not None:
+                score_vals = scores[selected_indices]
+                ranks = np.argsort(-score_vals) + 1
+            else:
+                score_vals = [None] * len(selected_indices)
+
+            for idx, snp_id in enumerate(snp_ids):
+                rows.append(
+                    {
+                        "snp_id": snp_id,
+                        "index": int(selected_indices[idx]),
+                        "score": None if score_vals is None else float(score_vals[idx]),
+                        "rank": None if ranks is None else int(ranks[idx]),
+                    }
+                )
+            save_csv(export_path / "selected_snps.csv", rows)
+
+        if self._feature_scores is not None:
+            save_numpy(export_path / "feature_scores.npy", np.array(self._feature_scores))
+
+        if self._feature_stages is not None:
+            save_json(export_path / "feature_pipeline_stages.json", self._feature_stages)
+            stage_rows = []
+            for stage in self._feature_stages:
+                stage_rows.append(
+                    {
+                        "name": stage.get("name"),
+                        "method": stage.get("method"),
+                        "features_in": stage.get("features_in"),
+                        "features_out": stage.get("features_out"),
+                        "params": stage.get("params"),
+                    }
+                )
+            save_csv(export_path / "feature_pipeline_summary.csv", stage_rows)
 
     def _normalize_data(
         self, data: torch.Tensor

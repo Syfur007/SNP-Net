@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification import (
@@ -75,6 +76,7 @@ class LitModule(LightningModule):
         self.test_auroc = AUROC(task=task, num_classes=num_classes)
 
         # Confusion matrix for detailed analysis
+        self.train_confusion_matrix = ConfusionMatrix(task=task, num_classes=num_classes)
         self.val_confusion_matrix = ConfusionMatrix(task=task, num_classes=num_classes)
         self.test_confusion_matrix = ConfusionMatrix(task=task, num_classes=num_classes)
 
@@ -83,10 +85,19 @@ class LitModule(LightningModule):
         self.val_loss = MeanMetric()
         self.test_loss = MeanMetric()
 
+        # Class-wise loss tracking
+        self.train_loss_per_class = torch.nn.ModuleList([MeanMetric() for _ in range(num_classes)])
+        self.val_loss_per_class = torch.nn.ModuleList([MeanMetric() for _ in range(num_classes)])
+        self.test_loss_per_class = torch.nn.ModuleList([MeanMetric() for _ in range(num_classes)])
+
         # for tracking best so far validation accuracy
         self.val_acc_best = MaxMetric()
         self.val_auroc_best = MaxMetric()
         self.val_f1_best = MaxMetric()
+
+        # Containers for test outputs
+        self._test_probs: List[torch.Tensor] = []
+        self._test_targets: List[torch.Tensor] = []
 
     def _compute_sensitivity_specificity(
         self, confusion_matrix: torch.Tensor
@@ -226,10 +237,27 @@ class LitModule(LightningModule):
         self.val_acc_best.reset()
         self.val_auroc_best.reset()
         self.val_f1_best.reset()
+        self.train_confusion_matrix.reset()
+        for metric in self.train_loss_per_class:
+            metric.reset()
+        for metric in self.val_loss_per_class:
+            metric.reset()
+        for metric in self.test_loss_per_class:
+            metric.reset()
+
+    def on_train_epoch_start(self) -> None:
+        self.train_confusion_matrix.reset()
+        for metric in self.train_loss_per_class:
+            metric.reset()
+
+    def on_validation_epoch_start(self) -> None:
+        self.val_confusion_matrix.reset()
+        for metric in self.val_loss_per_class:
+            metric.reset()
 
     def model_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of SNP features and target labels.
@@ -245,7 +273,7 @@ class LitModule(LightningModule):
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         probs = torch.softmax(logits, dim=1)
-        return loss, preds, probs, y
+        return loss, preds, probs, y, logits
 
     def _get_probs_for_auroc(self, probs: torch.Tensor) -> torch.Tensor:
         """Select probability tensor for AUROC computation based on number of classes."""
@@ -269,6 +297,7 @@ class LitModule(LightningModule):
             self.train_recall(preds, targets)
             self.train_f1(preds, targets)
             self.train_auroc(probs_for_auroc, targets)
+            self.train_confusion_matrix(preds, targets)
 
             self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
             self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
@@ -320,17 +349,19 @@ class LitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        loss, preds, probs, targets = self.model_step(batch)
+        loss, preds, probs, targets, logits = self.model_step(batch)
 
         probs_for_auroc = self._get_probs_for_auroc(probs)
         self._update_and_log_metrics("train", loss, preds, probs_for_auroc, targets)
+        self._update_classwise_losses("train", logits, targets)
 
         # return loss or backpropagation will fail
         return loss
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
-        pass
+        self._log_classwise_losses("train")
+        self._log_confusion_matrix_metrics("train")
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
@@ -338,10 +369,11 @@ class LitModule(LightningModule):
         :param batch: A batch of data (a tuple) containing the input tensor of SNP features and target labels.
         :param batch_idx: The index of the current batch.
         """
-        loss, preds, probs, targets = self.model_step(batch)
+        loss, preds, probs, targets, logits = self.model_step(batch)
 
         probs_for_auroc = self._get_probs_for_auroc(probs)
         self._update_and_log_metrics("val", loss, preds, probs_for_auroc, targets)
+        self._update_classwise_losses("val", logits, targets)
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
@@ -358,16 +390,24 @@ class LitModule(LightningModule):
         self.log("val/auroc_best", self.val_auroc_best.compute(), sync_dist=True, prog_bar=False)
         self.log("val/f1_best", self.val_f1_best.compute(), sync_dist=True, prog_bar=False)
 
+        self._log_classwise_losses("val")
+        self._log_confusion_matrix_metrics("val")
+
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of SNP features and target labels.
         :param batch_idx: The index of the current batch.
         """
-        loss, preds, probs, targets = self.model_step(batch)
+        loss, preds, probs, targets, logits = self.model_step(batch)
 
         probs_for_auroc = self._get_probs_for_auroc(probs)
         self._update_and_log_metrics("test", loss, preds, probs_for_auroc, targets)
+        self._update_classwise_losses("test", logits, targets)
+
+        # Store outputs for downstream metrics/curves
+        self._test_probs.append(probs.detach().cpu())
+        self._test_targets.append(targets.detach().cpu())
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
@@ -386,6 +426,66 @@ class LitModule(LightningModule):
                 self.log(f"test/specificity_class_{idx}", value, sync_dist=True, prog_bar=False)
 
         self._log_confusion_matrix_image(test_cm, stage="test")
+        self._log_classwise_losses("test")
+        self._log_confusion_matrix_metrics("test")
+
+    def on_test_start(self) -> None:
+        self._test_probs = []
+        self._test_targets = []
+        self.test_confusion_matrix.reset()
+        for metric in self.test_loss_per_class:
+            metric.reset()
+
+    def _update_classwise_losses(self, stage: str, logits: torch.Tensor, targets: torch.Tensor) -> None:
+        losses = F.cross_entropy(logits, targets, reduction="none")
+        for class_idx in range(self.hparams.num_classes):
+            mask = targets == class_idx
+            if mask.any():
+                if stage == "train":
+                    self.train_loss_per_class[class_idx](losses[mask].mean())
+                elif stage == "val":
+                    self.val_loss_per_class[class_idx](losses[mask].mean())
+                elif stage == "test":
+                    self.test_loss_per_class[class_idx](losses[mask].mean())
+
+    def _log_classwise_losses(self, stage: str) -> None:
+        if stage == "train":
+            metrics = self.train_loss_per_class
+        elif stage == "val":
+            metrics = self.val_loss_per_class
+        else:
+            metrics = self.test_loss_per_class
+
+        for idx, metric in enumerate(metrics):
+            self.log(f"{stage}/loss_class_{idx}", metric.compute(), sync_dist=True, prog_bar=False)
+
+    def _log_confusion_matrix_metrics(self, stage: str) -> None:
+        if stage == "train":
+            cm = self.train_confusion_matrix.compute()
+        elif stage == "val":
+            cm = self.val_confusion_matrix.compute()
+        else:
+            cm = self.test_confusion_matrix.compute()
+
+        sensitivity_macro, specificity_macro, _, _ = self._compute_sensitivity_specificity(cm)
+        balanced_acc = (sensitivity_macro + specificity_macro) / 2.0
+        mcc = self._compute_mcc(cm)
+
+        self.log(f"{stage}/balanced_acc", balanced_acc, sync_dist=True, prog_bar=False)
+        self.log(f"{stage}/mcc", mcc, sync_dist=True, prog_bar=False)
+
+    def _compute_mcc(self, confusion_matrix: torch.Tensor) -> torch.Tensor:
+        cm = confusion_matrix.float()
+        t_sum = cm.sum(dim=1)
+        p_sum = cm.sum(dim=0)
+        n = cm.sum()
+        c = torch.trace(cm)
+        s = torch.sum(p_sum * t_sum)
+        numerator = c * n - s
+        denominator = torch.sqrt((n**2 - torch.sum(p_sum**2)) * (n**2 - torch.sum(t_sum**2)))
+        if denominator == 0:
+            return torch.tensor(0.0, device=cm.device)
+        return numerator / denominator
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,

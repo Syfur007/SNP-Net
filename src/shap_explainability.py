@@ -549,8 +549,12 @@ def main():
     
     # Setup output directory
     if args.output_dir is None:
-        checkpoint_dir = Path(args.checkpoint_path).parent.parent
-        args.output_dir = checkpoint_dir / 'shap_analysis'
+        export_dir = os.getenv("SNP_EXPORT_DIR")
+        if export_dir:
+            args.output_dir = Path(export_dir) / "shap_analysis"
+        else:
+            checkpoint_dir = Path(args.checkpoint_path).parent.parent
+            args.output_dir = checkpoint_dir / 'shap_analysis'
     
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

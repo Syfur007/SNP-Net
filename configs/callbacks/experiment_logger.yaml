@@ -1,0 +1,13 @@
+﻿experiment_logger:
+  _target_: src.utils.experiment_logger.ExperimentLoggerCallback
+  export_dir: "${paths.output_dir}/exports"
+  experiment_id: "${hydra:job.name}_${now:%Y-%m-%d_%H-%M-%S}"
+  model_name: "${model._target_}"
+  task_name: "${task_name}"
+  seed: "${seed}"
+  calibration_bins: 10
+  threshold_steps: 101
+  robustness:
+    noise_std: [0.0, 0.01, 0.05]
+    feature_dropout: [0.0, 0.1, 0.25]
+    subset_fractions: [1.0, 0.75, 0.5]

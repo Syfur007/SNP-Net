@@ -4,7 +4,7 @@ defaults:
   - _self_
   - data: default # choose datamodule with `test_dataloader()` for evaluation
   - model: dense
-  - logger: null
+  - logger: wandb_csv
   - trainer: default
   - paths: default
   - extras: default

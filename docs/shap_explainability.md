@@ -59,11 +59,12 @@ data/
 logs/train/runs/{experiment}/
 ├── checkpoints/
 │   └── best.ckpt                  # Best model checkpoint
-└── shap_results/                  # SHAP output directory (auto-created)
-    ├── top_shap_snps.csv          # Ranked SNP importance list
-    ├── shap_bar_top20.png         # Bar plot of top SNPs
-    ├── shap_heatmap_top50.png     # Sample-level attribution heatmap
-    └── shap_analysis.log          # Detailed execution log
+└── exports/
+  └── shap_analysis/             # SHAP output directory (auto-created)
+    ├── top_shap_snps.csv      # Ranked SNP importance list
+    ├── shap_bar_top20.png     # Bar plot of top SNPs
+    ├── shap_heatmap_top50.png # Sample-level attribution heatmap
+    └── shap_analysis.log      # Detailed execution log
 ```
 
 ## Installation
@@ -112,7 +113,8 @@ python src/shap_explainability.py \
 
 ### Step 3: View Results
 
-Results are saved to the output directory (default: same directory as checkpoint):
+Results are saved to the output directory. If `SNP_EXPORT_DIR` is set (during training/eval),
+SHAP defaults to `${SNP_EXPORT_DIR}/shap_analysis`; otherwise it falls back to the checkpoint directory.
 
 ```
 shap_results/

@@ -1,0 +1,20 @@
+﻿# W&B primary logger + CSV offline logger
+
+wandb:
+  _target_: lightning.pytorch.loggers.wandb.WandbLogger
+  save_dir: "${paths.output_dir}"
+  offline: False
+  id: null
+  anonymous: null
+  project: "SNP-Net"
+  log_model: True
+  prefix: ""
+  group: ""
+  tags: []
+  job_type: ""
+
+csv:
+  _target_: lightning.pytorch.loggers.csv_logs.CSVLogger
+  save_dir: "${paths.output_dir}"
+  name: "csv/"
+  prefix: ""
