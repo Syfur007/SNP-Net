@@ -34,7 +34,7 @@ callbacks:
 
 logger:
   wandb:
-    name: "GSE90073-DPCformer-h${model.net.hidden_dim}-CNN${model.net.num_cnn_layers}
+    name: "GSE90073-DPCformer-h${model.net.hidden_dim}-CNN${model.net.num_cnn_layers}"
     tags: ${tags}
     group: "GSE90073_classification"
     notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based GSE90073 prediction"

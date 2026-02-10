@@ -37,7 +37,7 @@ callbacks:
 
 logger:
   wandb:
-    name: "Mental-DPCformer-h${model.net.hidden_dim}-CNN${model.net.num_cnn_layers}
+    name: "Mental-DPCformer-h${model.net.hidden_dim}-CNN${model.net.num_cnn_layers}"
     tags: ${tags}
     group: "mental_classification"
     notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based mental health prediction"
