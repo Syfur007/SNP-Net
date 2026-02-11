@@ -6,7 +6,7 @@ defaults:
   - override /data: GSE90073
   - override /model: bilstm
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 tags: ["GSE90073", "bilstm", "case_control"]

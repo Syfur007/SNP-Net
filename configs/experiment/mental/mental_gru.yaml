@@ -7,7 +7,7 @@ defaults:
   - override /data: mental
   - override /model: gru
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 tags: ["mental", "gru", "case_control"]

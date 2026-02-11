@@ -7,7 +7,7 @@ defaults:
   - override /data: GSE33355
   - override /model: gru
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 tags: ["GSE33355", "gru", "case_control"]

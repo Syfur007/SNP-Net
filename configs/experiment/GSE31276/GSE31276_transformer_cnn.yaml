@@ -7,7 +7,7 @@ defaults:
   - override /data: GSE31276
   - override /model: transformer_cnn
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: cpu
   - override /logger: wandb
 
 

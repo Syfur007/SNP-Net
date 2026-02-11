@@ -7,7 +7,7 @@ defaults:
   - override /data: GSE139294
   - override /model: transformer_cnn
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: cpu
   - override /logger: wandb
 
 tags: ["lung_adenocarcinoma", "transformer_cnn", "case_control"]

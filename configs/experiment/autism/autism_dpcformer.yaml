@@ -7,7 +7,7 @@ defaults:
   - override /data: autism
   - override /model: dpcformer
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 # DPCformer (Deep Pheno Correlation Former) for autism classification

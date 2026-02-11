@@ -7,7 +7,7 @@ defaults:
   - override /data: mental
   - override /model: wheatgp
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 # WheatGP (CNN-LSTM) for mental health classification

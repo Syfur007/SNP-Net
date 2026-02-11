@@ -7,7 +7,7 @@ defaults:
   - override /data: GSE31276
   - override /model: stacked_lstm
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 tags: ["GSE31276", "stacked_lstm", "case_control"]

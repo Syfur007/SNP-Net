@@ -7,7 +7,7 @@ defaults:
   - override /data: GSE139294
   - override /model: vae
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 tags: ["lung_adenocarcinoma", "vae", "case_control"]

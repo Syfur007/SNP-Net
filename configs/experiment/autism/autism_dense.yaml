@@ -7,7 +7,7 @@ defaults:
   - override /data: autism
   - override /model: dense
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: xpu
   - override /logger: wandb
 
 tags: ["autism", "dense", "case_control"]

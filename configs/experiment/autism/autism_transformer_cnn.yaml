@@ -7,7 +7,7 @@ defaults:
   - override /data: autism
   - override /model: transformer_cnn
   - override /callbacks: default
-  - override /trainer: default
+  - override /trainer: cpu
   - override /logger: wandb
 
 # Transformer-CNN (DeepPlantCRE-inspired) for autism classification
