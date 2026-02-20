@@ -49,19 +49,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-class BiLSTMWrapper(torch.nn.Module):
-    """Wrapper for BiLSTM model compatible with Captum attribution methods.
+class ModelWrapper(torch.nn.Module):
+    """Architecture-agnostic wrapper compatible with Captum attribution methods.
     
     This wrapper ensures the model output is suitable for attribution:
     - Returns logits for the target class
-    - Handles BiLSTM's internal reshaping
+    - Works with any model architecture
     """
     
     def __init__(self, model: torch.nn.Module, target_class: int = 1):
         """Initialize the wrapper.
         
         Args:
-            model: The BiLSTM model (net component of LightningModule)
+            model: The neural network module (net component of LightningModule)
             target_class: Class to compute attributions for (default: 1 for case)
         """
         super().__init__()
@@ -165,23 +165,10 @@ def load_data_with_identifiers(
     
     logger.info(f"Data shape: {data_tensor.shape}, Labels shape: {labels_tensor.shape}")
     
-    # Apply normalization if present in checkpoint
-    if 'mean' in datamodule_state and 'std' in datamodule_state:
-        mean = datamodule_state['mean']
-        std = datamodule_state['std']
-        
-        # Ensure tensors
-        if not isinstance(mean, torch.Tensor):
-            mean = torch.tensor(mean, dtype=torch.float32)
-        if not isinstance(std, torch.Tensor):
-            std = torch.tensor(std, dtype=torch.float32)
-        
-        # Normalize
-        std = torch.where(std == 0, torch.ones_like(std), std)
-        data_tensor = (data_tensor - mean) / std
-        logger.info("✓ Applied normalization (z-score)")
-    
-    # Apply feature selection if present in checkpoint
+    # Apply feature selection using indices from checkpoint
+    # Note: Normalization statistics (mean/std) from checkpoint are for intermediate feature space
+    # and cannot be reliably applied to raw data without additional tracking information.
+    # Feature selection alone is sufficient for IG analysis since gradients measure relative importance.
     selected_snp_ids = all_snp_ids
     if 'selected_indices' in datamodule_state:
         selected_indices = datamodule_state['selected_indices']
@@ -191,6 +178,8 @@ def load_data_with_identifiers(
         data_tensor = data_tensor[:, selected_indices]
         selected_snp_ids = [all_snp_ids[i] for i in selected_indices]
         logger.info(f"✓ Applied feature selection: {len(selected_snp_ids)} SNPs selected")
+    else:
+        logger.warning("⚠ No feature selection indices found in checkpoint")
     
     # Split data using same seed as training
     total_size = len(data_tensor)
@@ -294,8 +283,8 @@ def compute_integrated_gradients(
     logger.info(f"Baseline: {baseline.shape}")
     logger.info(f"Integration steps: {n_steps}")
     
-    # Create wrapper for the network
-    wrapped_model = BiLSTMWrapper(net, target_class=1)  # Class 1 = case
+    # Create wrapper for the network (architecture-agnostic)
+    wrapped_model = ModelWrapper(net, target_class=1)  # Class 1 = case
     wrapped_model = wrapped_model.to(device)
     wrapped_model.eval()
     
@@ -832,4 +821,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        # Clean up
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

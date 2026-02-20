@@ -1,0 +1,77 @@
+﻿# Hydra configuration for interpretability analysis pipeline
+# Generates SHAP, IG, and LIME attributions across multiple models and datasets
+
+# Which methods to run
+methods:
+  shap:
+    enabled: true
+    num_background: 10  # Reduced from 50
+    num_test: 20  # Reduced from 100 to save memory
+  
+  ig:
+    enabled: true
+    num_test: 20  # Reduced from 100 to save memory
+    baseline: 'mean'  # 'zero', 'mean', 'random'
+    n_steps: 50
+  
+  lime:
+    enabled: false  # Disabled - too memory intensive
+    num_test: 30
+    num_samples_per_test: 30
+
+# Analysis output configuration
+analysis:
+  output_base_dir: outputs/interpretability_analysis
+  
+  # Subdirectories for different outputs
+  figure_dir: ${analysis.output_base_dir}/figures
+  data_dir: ${analysis.output_base_dir}/data
+  notebook_dir: ${analysis.output_base_dir}/notebooks
+  
+  # Visualization parameters
+  top_k_bar: 20
+  top_k_heatmap: 100
+  num_samples_heatmap: 30
+  
+  # Robustness analysis
+  compute_consensus: true
+  top_k_consensus: 50
+
+# Dataset configuration for analysis
+datasets:
+  - name: GSE139294
+    data_file: data/Finalized_GSE139294.csv
+    config_name: GSE139294
+  
+  - name: GSE31276
+    data_file: data/Finalized_GSE31276.csv
+    config_name: GSE31276
+  
+  - name: GSE33355
+    data_file: data/Finalized_GSE33355.csv
+    config_name: GSE33355
+  
+  - name: GSE90073
+    data_file: data/Finalized_GSE90073.csv
+    config_name: GSE90073
+
+# Checkpoint selection
+checkpoint_selection:
+  # Can be: 'best', 'all', or a list of checkpoint paths
+  mode: 'best'  # Only use best checkpoint
+  
+  # Alternatively, specify specific checkpoints:
+  # checkpoints:
+  #   - logs/train/runs/experiment_name_timestamp/checkpoints/best.ckpt
+  #   - logs/train/runs/another_experiment_timestamp/checkpoints/best.ckpt
+
+# Parallel execution settings
+parallel:
+  num_workers: 1
+  device: 'auto'  # 'cuda', 'cpu', or 'auto'
+  
+# Logging
+logging:
+  verbose: true
+  save_logs: true
+  log_file: ${analysis.output_base_dir}/analysis.log

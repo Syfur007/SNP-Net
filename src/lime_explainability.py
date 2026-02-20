@@ -1,20 +1,19 @@
 """
-SHAP-based Explainability for BiLSTM SNP Classification Model
+LIME-based Explainability for SNP Classification Models
 
-This script implements SHAP (SHapley Additive exPlanations) analysis for the trained
-BiLSTM model on the Autism SNP dataset. It computes feature attribution scores,
-ranks SNPs by importance, and generates publication-ready visualizations.
+This script implements LIME (Local Interpretable Model-agnostic Explanations)
+analysis for trained models on SNP classification tasks. It computes local 
+feature attributions and aggregates them to global SNP importance rankings.
 
 Key Features:
-- Loads best checkpoint from ModelCheckpoint callback
-- Reshapes input for BiLSTM sequence processing
-- Uses GradientExplainer for attribution computation
-- Generates global importance rankings across test samples
-- Maps importance back to SNP identifiers
-- Creates bar plots and heatmaps for interpretation
+- Architecture-agnostic (works with all model types)
+- Uses LIME's tabular explainer for local explanations
+- Aggregates local explanations to global importance rankings
+- Generates visualizations matching SHAP/IG output format
+- Deterministic and fast computation
 
 Usage:
-    python src/shap_explainability.py --checkpoint_path <path_to_best_ckpt>
+    python src/lime_explainability.py --checkpoint_path <path_to_best_ckpt>
 """
 
 import argparse
@@ -32,7 +31,8 @@ import torch
 from lightning import LightningModule
 from torch.utils.data import DataLoader, TensorDataset
 
-import shap
+import lime
+import lime.lime_tabular
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent
@@ -43,21 +43,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-class ModelShapWrapper(torch.nn.Module):
-    """Architecture-agnostic wrapper for SHAP-compatible forward pass.
+class ModelWrapper(torch.nn.Module):
+    """Architecture-agnostic wrapper compatible with LIME.
     
-    This wrapper works with any model architecture by delegating to the 
-    model's forward pass without modification.
+    LIME requires a function that returns class probabilities.
+    This wrapper converts model logits to probability predictions.
     """
     
-    def __init__(self, model: torch.nn.Module):
+    def __init__(self, model: torch.nn.Module, use_softmax: bool = True):
         """Initialize the wrapper.
         
         Args:
             model: The neural network module (net component of LightningModule)
+            use_softmax: Whether to apply softmax to logits (default: True)
         """
         super().__init__()
         self.model = model
+        self.use_softmax = use_softmax
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
@@ -66,9 +68,12 @@ class ModelShapWrapper(torch.nn.Module):
             x: Input tensor of shape (batch, num_features)
             
         Returns:
-            Logits of shape (batch, num_classes)
+            Class probabilities of shape (batch, num_classes)
         """
-        return self.model(x)
+        logits = self.model(x)  # Shape: (batch, num_classes)
+        if self.use_softmax:
+            return torch.softmax(logits, dim=1)
+        return logits
 
 
 def load_checkpoint(checkpoint_path: str) -> Tuple[LightningModule, Dict]:
@@ -106,7 +111,7 @@ def load_data_with_identifiers(
     data_file: str,
     datamodule_state: Dict,
     train_val_test_split: Tuple[float, float, float] = (0.7, 0.15, 0.15),
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[str]]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[str], Tuple[float, float]]:
     """Load data and extract SNP identifiers, applying same preprocessing.
     
     Args:
@@ -115,7 +120,7 @@ def load_data_with_identifiers(
         train_val_test_split: Train/val/test split ratios
         
     Returns:
-        Tuple of (train_data, train_labels, test_data, test_labels, snp_ids)
+        Tuple of (train_data, train_labels, test_data, test_labels, snp_ids, mean_std)
     """
     logger.info(f"Loading data from: {data_file}")
     
@@ -158,8 +163,9 @@ def load_data_with_identifiers(
     # Apply feature selection using indices from checkpoint
     # Note: Normalization statistics (mean/std) from checkpoint are for intermediate feature space
     # and cannot be reliably applied to raw data without additional tracking information.
-    # Feature selection alone is sufficient for SHAP analysis since relative differences are analyzed.
+    # Feature selection alone is sufficient for LIME analysis since relative feature contributions are analyzed.
     selected_snp_ids = all_snp_ids
+    mean_val, std_val = None, None
     if 'selected_indices' in datamodule_state:
         selected_indices = datamodule_state['selected_indices']
         if not isinstance(selected_indices, np.ndarray):
@@ -191,31 +197,33 @@ def load_data_with_identifiers(
     
     logger.info(f"✓ Split complete: Train={len(train_data)}, Test={len(test_data)}")
     
-    return train_data, train_labels, test_data, test_labels, selected_snp_ids
+    return train_data, train_labels, test_data, test_labels, selected_snp_ids, (mean_val, std_val)
 
 
-def compute_shap_values(
+def compute_lime_values(
     model: LightningModule,
     train_data: torch.Tensor,
     test_data: torch.Tensor,
-    num_background: int = 50,
+    snp_ids: List[str],
     num_test: int = 100,
+    num_samples_per_test: int = 100,
     device: str = 'cpu',
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute SHAP values using GradientExplainer.
+) -> Tuple[np.ndarray, List[Dict]]:
+    """Compute LIME attributions for test samples.
     
     Args:
         model: Trained LightningModule
-        train_data: Training data tensor for background
+        train_data: Training data for background statistics
         test_data: Test data tensor to explain
-        num_background: Number of background samples
+        snp_ids: List of SNP identifiers
         num_test: Number of test samples to explain
+        num_samples_per_test: Number of perturbations per sample
         device: Device to run computation on
         
     Returns:
-        Tuple of (shap_values, background_samples, test_samples)
+        Tuple of (aggregated_importance, lime_explanations)
     """
-    logger.info("Computing SHAP values using GradientExplainer...")
+    logger.info(f"Computing LIME explanations for {num_test} test samples...")
     
     # Move model to device
     model = model.to(device)
@@ -224,98 +232,114 @@ def compute_shap_values(
     # Extract the neural network from LightningModule
     net = model.net
     
-    # Sample background and test data
-    num_background = min(num_background, len(train_data))
+    # Sample test data
     num_test = min(num_test, len(test_data))
-    
-    # Random sampling
     torch.manual_seed(42)
-    background_indices = torch.randperm(len(train_data))[:num_background]
     test_indices = torch.randperm(len(test_data))[:num_test]
+    test_samples = test_data[test_indices].numpy()
     
-    background_samples = train_data[background_indices].to(device)
-    test_samples = test_data[test_indices].to(device)
+    logger.info(f"Test samples shape: {test_samples.shape}")
     
-    logger.info(f"Background samples: {background_samples.shape}")
-    logger.info(f"Test samples: {test_samples.shape}")
-    
-    # Ensure gradients are enabled for inputs
-    background_samples.requires_grad = True
-    test_samples.requires_grad = True
-    
-    # Create wrapper for the network (architecture-agnostic)
-    wrapped_model = ModelShapWrapper(net)
+    # Create a wrapper for LIME compatibility
+    wrapped_model = ModelWrapper(net, use_softmax=True)
     wrapped_model = wrapped_model.to(device)
     wrapped_model.eval()
     
-    # Initialize GradientExplainer
-    logger.info("Initializing GradientExplainer...")
-    explainer = shap.GradientExplainer(wrapped_model, background_samples)
+    # Create prediction function for LIME
+    def predict_fn(x):
+        """Predict function that LIME can use."""
+        x_tensor = torch.tensor(x, dtype=torch.float32).to(device)
+        with torch.no_grad():
+            probs = wrapped_model(x_tensor)
+        return probs.cpu().numpy()
     
-    # Compute SHAP values
-    logger.info("Computing SHAP attributions (this may take a few minutes)...")
-    with torch.enable_grad():
-        shap_values = explainer.shap_values(test_samples)
+    # Compute statistics from training data for LIME perturbations
+    train_mean = train_data.numpy().mean(axis=0)
+    train_std = train_data.numpy().std(axis=0)
+    train_std = np.where(train_std == 0, 1e-6, train_std)  # Avoid division by zero
     
-    # Convert to numpy
-    if isinstance(shap_values, list):
-        # Multi-class: take values for class 1 (case)
-        shap_values_np = shap_values[1]
-    else:
-        shap_values_np = shap_values
+    logger.info("Initializing LIME TabularExplainer...")
+    explainer = lime.lime_tabular.LimeTabularExplainer(
+        training_data=train_data.numpy(),
+        feature_names=[f"SNP_{i}" for i in range(len(snp_ids))],
+        class_names=['Control', 'Case'],
+        mode='classification',
+        random_state=42
+    )
     
-    # Move to CPU and convert to numpy
-    if isinstance(shap_values_np, torch.Tensor):
-        shap_values_np = shap_values_np.cpu().detach().numpy()
+    # Compute LIME explanations for each test sample
+    logger.info(f"Computing LIME attributions (this may take a few minutes)...")
     
-    background_np = background_samples.cpu().detach().numpy()
-    test_np = test_samples.cpu().detach().numpy()
+    # Aggregate LIME weights
+    aggregated_weights = np.zeros(len(snp_ids))
+    lime_explanations = []
     
-    logger.info(f"✓ SHAP values computed: {shap_values_np.shape}")
+    for i, test_sample in enumerate(test_samples):
+        if (i + 1) % 5 == 0:
+            logger.info(f"  Processing sample {i + 1}/{len(test_samples)}")
+        
+        try:
+            # Compute LIME explanation for this sample
+            exp = explainer.explain_instance(
+                test_sample,
+                predict_fn,
+                num_features=min(len(snp_ids), 30),  # Limit features explained
+                num_samples=num_samples_per_test,
+                top_labels=1
+            )
+            
+            # Extract feature weights (absolute values for global importance)
+            explanation_dict = dict(exp.as_list())
+            
+            # Store explanation
+            lime_explanations.append(explanation_dict)
+            
+            # Aggregate weights: get weight for each feature
+            for feature_idx in range(len(snp_ids)):
+                feature_name = f"SNP_{feature_idx}"
+                if feature_name in explanation_dict:
+                    aggregated_weights[feature_idx] += np.abs(explanation_dict[feature_name])
+        except Exception as e:
+            logger.warning(f"  Failed to explain sample {i}: {str(e)[:100]}")
+            continue
     
-    return shap_values_np, background_np, test_np
+    # Average the weights
+    aggregated_weights /= len(test_samples)
+    
+    logger.info(f"✓ LIME explanations computed: {len(lime_explanations)} samples")
+    
+    return aggregated_weights, lime_explanations
 
 
 def aggregate_and_rank_snps(
-    shap_values: np.ndarray,
+    lime_importance: np.ndarray,
     snp_ids: List[str],
     output_path: str,
 ) -> pd.DataFrame:
-    """Aggregate SHAP values and rank SNPs by importance.
+    """Aggregate LIME weights and rank SNPs by importance.
     
     Args:
-        shap_values: SHAP values of shape (num_samples, num_features) or (num_samples, num_features, num_classes)
+        lime_importance: Mean absolute LIME weights for each feature
         snp_ids: List of SNP identifiers
         output_path: Path to save the ranked SNP list
         
     Returns:
         DataFrame with ranked SNPs and their importance scores
     """
-    logger.info("Aggregating SHAP values across samples...")
-    
-    # Handle multi-class SHAP values - take class 1 (case) for binary classification
-    if shap_values.ndim == 3:
-        logger.info(f"Multi-class SHAP values detected (shape: {shap_values.shape}), using class 1 (case)")
-        shap_values = shap_values[:, :, 1]  # Shape: (num_samples, num_features)
-    
-    # Compute mean absolute SHAP value for each feature
-    mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+    logger.info("Aggregating LIME weights across samples...")
     
     # Create DataFrame
     snp_importance_df = pd.DataFrame({
         'SNP_ID': snp_ids,
-        'Mean_Abs_SHAP': mean_abs_shap,
-        'Mean_SHAP': np.mean(shap_values, axis=0),
-        'Std_SHAP': np.std(shap_values, axis=0),
-        'Max_Abs_SHAP': np.max(np.abs(shap_values), axis=0),
+        'Mean_LIME_Weight': lime_importance,
     })
     
-    # Sort by mean absolute SHAP value (descending)
-    snp_importance_df = snp_importance_df.sort_values('Mean_Abs_SHAP', ascending=False)
+    # Sort by mean LIME weight (descending)
+    snp_importance_df = snp_importance_df.sort_values('Mean_LIME_Weight', ascending=False)
     snp_importance_df['Rank'] = range(1, len(snp_importance_df) + 1)
     
     # Reorder columns
-    snp_importance_df = snp_importance_df[['Rank', 'SNP_ID', 'Mean_Abs_SHAP', 'Mean_SHAP', 'Std_SHAP', 'Max_Abs_SHAP']]
+    snp_importance_df = snp_importance_df[['Rank', 'SNP_ID', 'Mean_LIME_Weight']]
     
     # Save to CSV
     snp_importance_df.to_csv(output_path, index=False)
@@ -349,21 +373,21 @@ def create_bar_plot(
     fig, ax = plt.subplots(figsize=(12, 8))
     
     # Create bar plot
-    bars = ax.barh(range(len(top_snps)), top_snps['Mean_Abs_SHAP'], color='steelblue')
+    bars = ax.barh(range(len(top_snps)), top_snps['Mean_LIME_Weight'], color='coral')
     
     # Customize plot
     ax.set_yticks(range(len(top_snps)))
     ax.set_yticklabels(top_snps['SNP_ID'], fontsize=10)
-    ax.set_xlabel('Mean Absolute SHAP Value', fontsize=12, fontweight='bold')
+    ax.set_xlabel('Mean Absolute LIME Weight', fontsize=12, fontweight='bold')
     ax.set_ylabel('SNP Identifier', fontsize=12, fontweight='bold')
-    ax.set_title(f'Top {top_k} Most Important SNPs for Autism Classification\n(BiLSTM Model)', 
+    ax.set_title(f'Top {top_k} Most Important SNPs\n(LIME - Local Interpretable Model-agnostic Explanations)', 
                  fontsize=14, fontweight='bold', pad=20)
     
     # Invert y-axis to show highest importance at top
     ax.invert_yaxis()
     
     # Add value labels on bars
-    for i, (bar, value) in enumerate(zip(bars, top_snps['Mean_Abs_SHAP'])):
+    for i, (bar, value) in enumerate(zip(bars, top_snps['Mean_LIME_Weight'])):
         ax.text(value + 0.001, i, f'{value:.4f}', 
                 va='center', fontsize=9, color='black')
     
@@ -380,106 +404,10 @@ def create_bar_plot(
     plt.close()
 
 
-def create_heatmap(
-    shap_values: np.ndarray,
-    test_labels: np.ndarray,
-    snp_importance_df: pd.DataFrame,
-    output_path: str,
-    top_k: int = 100,
-    num_samples: int = 30,
-):
-    """Create heatmap showing per-sample SHAP contributions for top SNPs.
-    
-    Args:
-        shap_values: SHAP values of shape (num_samples, num_features) or (num_samples, num_features, num_classes)
-        test_labels: Test labels (0=control, 1=case)
-        snp_importance_df: DataFrame with ranked SNPs
-        output_path: Path to save the figure
-        top_k: Number of top SNPs to display
-        num_samples: Number of samples to display
-    """
-    logger.info(f"Creating heatmap for top {top_k} SNPs across {num_samples} samples...")
-    
-    # Handle multi-class SHAP values
-    if shap_values.ndim == 3:
-        shap_values = shap_values[:, :, 1]  # Use class 1 (case)
-    
-    # Get indices of top K SNPs
-    top_snp_ids = snp_importance_df.head(top_k)['SNP_ID'].tolist()
-    all_snp_ids = snp_importance_df['SNP_ID'].tolist()
-    top_indices = [all_snp_ids.index(snp_id) for snp_id in top_snp_ids]
-    
-    # Select SHAP values for top SNPs
-    shap_top = shap_values[:, top_indices]
-    
-    # Limit number of samples for visualization
-    if shap_top.shape[0] > num_samples:
-        # Sample equal number of cases and controls if possible
-        case_indices = np.where(test_labels == 1)[0]
-        control_indices = np.where(test_labels == 0)[0]
-        
-        num_cases = min(num_samples // 2, len(case_indices))
-        num_controls = min(num_samples - num_cases, len(control_indices))
-        
-        np.random.seed(42)
-        selected_indices = np.concatenate([
-            np.random.choice(case_indices, num_cases, replace=False),
-            np.random.choice(control_indices, num_controls, replace=False)
-        ])
-        
-        shap_top = shap_top[selected_indices]
-        test_labels_subset = test_labels[selected_indices]
-    else:
-        test_labels_subset = test_labels
-    
-    # Transpose for better visualization (SNPs as rows, samples as columns)
-    shap_top = shap_top.T
-    
-    # Create sample labels
-    sample_labels = [f"Case {i+1}" if label == 1 else f"Control {i+1}" 
-                    for i, label in enumerate(test_labels_subset)]
-    
-    # Create figure
-    fig, ax = plt.subplots(figsize=(16, 12))
-    
-    # Create heatmap
-    sns.heatmap(
-        shap_top,
-        cmap='RdBu_r',
-        center=0,
-        cbar_kws={'label': 'SHAP Value', 'shrink': 0.8},
-        xticklabels=sample_labels,
-        yticklabels=top_snp_ids if top_k <= 50 else False,
-        ax=ax,
-        vmin=-np.abs(shap_top).max(),
-        vmax=np.abs(shap_top).max(),
-    )
-    
-    # Customize plot
-    ax.set_xlabel('Samples', fontsize=12, fontweight='bold')
-    ax.set_ylabel('SNP Identifier', fontsize=12, fontweight='bold')
-    ax.set_title(f'Per-Sample SHAP Contributions for Top {top_k} SNPs\n'
-                 f'(BiLSTM Autism Classification Model)', 
-                 fontsize=14, fontweight='bold', pad=20)
-    
-    # Rotate x labels
-    plt.setp(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
-    if top_k <= 50:
-        plt.setp(ax.get_yticklabels(), fontsize=8)
-    
-    # Tight layout
-    plt.tight_layout()
-    
-    # Save figure
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    logger.info(f"✓ Heatmap saved to: {output_path}")
-    plt.close()
-
-
 def main():
     """Main execution function."""
     parser = argparse.ArgumentParser(
-        description='SHAP Explainability Analysis for BiLSTM SNP Classification'
+        description='LIME Explainability Analysis for SNP Classification'
     )
     parser.add_argument(
         '--checkpoint_path',
@@ -500,16 +428,16 @@ def main():
         help='Output directory for results (default: same as checkpoint dir)'
     )
     parser.add_argument(
-        '--num_background',
-        type=int,
-        default=50,
-        help='Number of background samples for SHAP (default: 50)'
-    )
-    parser.add_argument(
         '--num_test',
         type=int,
         default=100,
         help='Number of test samples to explain (default: 100)'
+    )
+    parser.add_argument(
+        '--num_samples_per_test',
+        type=int,
+        default=100,
+        help='Number of perturbations per sample for LIME (default: 100)'
     )
     parser.add_argument(
         '--device',
@@ -523,12 +451,6 @@ def main():
         default=20,
         help='Number of top SNPs for bar plot (default: 20)'
     )
-    parser.add_argument(
-        '--top_k_heatmap',
-        type=int,
-        default=100,
-        help='Number of top SNPs for heatmap (default: 100)'
-    )
     
     args = parser.parse_args()
     
@@ -536,10 +458,10 @@ def main():
     if args.output_dir is None:
         export_dir = os.getenv("SNP_EXPORT_DIR")
         if export_dir:
-            args.output_dir = Path(export_dir) / "shap_analysis"
+            args.output_dir = Path(export_dir) / "lime_analysis"
         else:
             checkpoint_dir = Path(args.checkpoint_path).parent.parent
-            args.output_dir = checkpoint_dir / 'shap_analysis'
+            args.output_dir = checkpoint_dir / 'lime_analysis'
     
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -548,69 +470,55 @@ def main():
     # Load checkpoint
     model, checkpoint = load_checkpoint(args.checkpoint_path)
     
-    # Extract datamodule state - check both possible keys
+    # Extract datamodule state
     datamodule_state = checkpoint.get('datamodule', checkpoint.get('DataModule', {}))
     
     # Load data with preprocessing
-    train_data, train_labels, test_data, test_labels, snp_ids = load_data_with_identifiers(
+    train_data, train_labels, test_data, test_labels, snp_ids, (mean_val, std_val) = load_data_with_identifiers(
         args.data_file,
         datamodule_state,
     )
     
-    # Compute SHAP values
-    shap_values, background_samples, test_samples = compute_shap_values(
+    # Compute LIME values
+    lime_importance, lime_explanations = compute_lime_values(
         model,
         train_data,
         test_data,
-        num_background=args.num_background,
+        snp_ids,
         num_test=args.num_test,
+        num_samples_per_test=args.num_samples_per_test,
         device=args.device,
     )
     
-    # Get corresponding test labels for samples used
-    torch.manual_seed(42)
-    test_indices = torch.randperm(len(test_data))[:args.num_test]
-    test_labels_used = test_labels[test_indices].numpy()
-    
     # Aggregate and rank SNPs
     snp_importance_df = aggregate_and_rank_snps(
-        shap_values,
+        lime_importance,
         snp_ids,
-        output_path=str(output_dir / 'top_shap_snps.csv'),
+        output_path=str(output_dir / 'top_lime_snps.csv'),
     )
     
     # Create visualizations
     create_bar_plot(
         snp_importance_df,
-        output_path=str(output_dir / f'shap_bar_top{args.top_k_bar}.png'),
+        output_path=str(output_dir / f'lime_bar_top{args.top_k_bar}.png'),
         top_k=args.top_k_bar,
     )
     
-    create_heatmap(
-        shap_values,
-        test_labels_used,
-        snp_importance_df,
-        output_path=str(output_dir / f'shap_heatmap_top{args.top_k_heatmap}.png'),
-        top_k=args.top_k_heatmap,
-        num_samples=30,
-    )
-    
     logger.info("\n" + "="*80)
-    logger.info("SHAP EXPLAINABILITY ANALYSIS COMPLETE")
+    logger.info("LIME EXPLAINABILITY ANALYSIS COMPLETE")
     logger.info("="*80)
     logger.info(f"Results saved to: {output_dir}")
-    logger.info(f"  - Ranked SNP list: top_shap_snps.csv")
-    logger.info(f"  - Bar plot: shap_bar_top{args.top_k_bar}.png")
-    logger.info(f"  - Heatmap: shap_heatmap_top{args.top_k_heatmap}.png")
+    logger.info(f"  - Ranked SNP list: top_lime_snps.csv")
+    logger.info(f"  - Bar plot: lime_bar_top{args.top_k_bar}.png")
     logger.info("="*80)
     
     # Summary statistics
     logger.info("\nSummary Statistics:")
     logger.info(f"  Total SNPs analyzed: {len(snp_ids)}")
-    logger.info(f"  Test samples explained: {len(shap_values)}")
-    logger.info(f"  Mean importance (top 20): {snp_importance_df.head(20)['Mean_Abs_SHAP'].mean():.6f}")
-    logger.info(f"  Mean importance (all): {snp_importance_df['Mean_Abs_SHAP'].mean():.6f}")
-    logger.info(f"  Importance range: [{snp_importance_df['Mean_Abs_SHAP'].min():.6f}, {snp_importance_df['Mean_Abs_SHAP'].max():.6f}]")
+    logger.info(f"  Test samples explained: {len(lime_explanations)}")
+    logger.info(f"  Mean importance (top 20): {snp_importance_df.head(20)['Mean_LIME_Weight'].mean():.6f}")
+    logger.info(f"  Mean importance (all): {snp_importance_df['Mean_LIME_Weight'].mean():.6f}")
+    logger.info(f"  Importance range: [{snp_importance_df['Mean_LIME_Weight'].min():.6f}, {snp_importance_df['Mean_LIME_Weight'].max():.6f}]")
 
 
 if __name__ == '__main__':

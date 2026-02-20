@@ -447,7 +447,9 @@ class ExperimentLoggerCallback(Callback):
                 if f >= 1.0:
                     return x
                 k = max(1, int(x.size(1) * f))
-                return x[:, :k]
+                mask = torch.zeros_like(x)
+                mask[:, :k] = 1.0
+                return x * mask
 
             _evaluate_with_transform(subset_fn, f"subset_fraction_{frac}")
 
