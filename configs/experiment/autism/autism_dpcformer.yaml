@@ -19,7 +19,6 @@ seed: 42
 
 trainer:
   min_epochs: 10
-  max_epochs: 100
   gradient_clip_val: 1.0
   
 callbacks:
@@ -41,5 +40,3 @@ logger:
     tags: ${tags}
     group: "autism_classification"
     notes: "DPCformer: State-of-the-art hybrid CNN + Transformer architecture for SNP-based autism prediction"
-  aim:
-    experiment: "autism_dpcformer"

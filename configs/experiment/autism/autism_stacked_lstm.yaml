@@ -16,7 +16,6 @@ seed: 42
 
 trainer:
   min_epochs: 10
-  max_epochs: 100
   gradient_clip_val: 1.0
 
 callbacks:
@@ -35,5 +34,3 @@ logger:
     name: "Autism-StackedLSTM-${model.net.hidden_sizes}-w${model.net.window_size}-w${model.net.window_size}"
     tags: ${tags}
     group: "autism_classification"
-  aim:
-    experiment: "autism_stacked_lstm"

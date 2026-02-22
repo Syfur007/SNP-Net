@@ -19,7 +19,6 @@ seed: 42
 
 trainer:
   min_epochs: 10
-  max_epochs: 100
   gradient_clip_val: 1.0
   
 callbacks:
@@ -41,5 +40,3 @@ logger:
     tags: ${tags}
     group: "autism_classification"
     notes: "Transformer-CNN: DeepPlantCRE-inspired hybrid combining global transformer context with hierarchical CNN features"
-  aim:
-    experiment: "autism_transformer_cnn"
