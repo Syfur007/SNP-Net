@@ -24,7 +24,7 @@ train_val_test_split: [0.7, 0.15, 0.15]
 # K-Fold Cross Validation (optional)
 # Set to null to use regular train/val/test split
 # Set to an integer >= 2 to enable k-fold cross validation
-num_folds: null
+num_folds: 5
 
 # Current fold index (0 to num_folds-1)
 current_fold: 0

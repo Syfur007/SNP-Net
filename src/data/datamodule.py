@@ -1,4 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
+import glob
+import os
 
 import numpy as np
 import pandas as pd
@@ -69,6 +71,8 @@ class DataModule(LightningDataModule):
         current_fold: int = 0,
         # Feature selection parameters (optional)
         feature_selection: Optional[Dict[str, Any]] = None,
+        # Separate train/test file support (optional)
+        auto_detect_train_test: bool = True,
     ) -> None:
         """Initialize a `SNPDataModule`.
 
@@ -77,6 +81,7 @@ class DataModule(LightningDataModule):
         :param label_row_name: Name of the row in data_file containing labels (if labels are in data_file).
         :param labels_in_last_row: Whether labels are in the last row of the CSV file. Defaults to True.
         :param train_val_test_split: Proportions for train, validation and test split. Defaults to (0.7, 0.15, 0.15).
+            Ignored if separate train/test files are auto-detected or provided.
         :param batch_size: The batch size. Defaults to 32.
         :param num_workers: The number of workers. Defaults to 0.
         :param pin_memory: Whether to pin memory. Defaults to False.
@@ -89,6 +94,8 @@ class DataModule(LightningDataModule):
             - method: str (amgm, cosine, variance, mutual_info, l1)
             - k: int (number of features to select)
             - Additional method-specific parameters (threshold, mode, C, etc.)
+        :param auto_detect_train_test: If True and data_file does not exist, auto-detect *train*.csv and *test*.csv
+            in the data directory. Defaults to True.
         """
         super().__init__()
 
@@ -101,6 +108,11 @@ class DataModule(LightningDataModule):
         self.data_test: Optional[Dataset] = None
 
         self.batch_size_per_device = batch_size
+        
+        # Detect/create separate train/test files if needed (happens in prepare_data)
+        self._train_data_file: Optional[str] = None
+        self._test_data_file: Optional[str] = None
+        self._detected_separate_files = False
         
         # Store normalization parameters for inference
         self.mean: Optional[torch.Tensor] = None
@@ -154,13 +166,143 @@ class DataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        # Check if data file exists
-        import os
-        if not os.path.exists(self.hparams.data_file):
-            raise FileNotFoundError(
-                f"Data file not found: {self.hparams.data_file}\n"
-                f"Please ensure the SNP data CSV file is available at the specified path."
-            )
+        import logging
+        log = logging.getLogger(__name__)
+        
+        # If separate files not detected, check if we should split the single file
+        if not self._detected_separate_files:
+            # Try to auto-split single file into train/test if they don't exist
+            if os.path.exists(self.hparams.data_file):
+                self._split_if_needed(log)
+        
+        # Now check if data file(s) exist
+        if self._detected_separate_files:
+            # Check for separate train/test files
+            if not os.path.exists(self._train_data_file):
+                raise FileNotFoundError(
+                    f"Train data file not found: {self._train_data_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
+            if not os.path.exists(self._test_data_file):
+                raise FileNotFoundError(
+                    f"Test data file not found: {self._test_data_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
+        else:
+            # Check single data_file
+            if not os.path.exists(self.hparams.data_file):
+                raise FileNotFoundError(
+                    f"Data file not found: {self.hparams.data_file}\n"
+                    f"Please ensure the SNP data CSV file is available at the specified path."
+                )
+
+    def _split_if_needed(self, log) -> None:
+        """Check if separate train/test files exist in the data directory.
+        If not, split the single data_file and create them.
+        
+        :param log: Logger instance.
+        """
+        data_file = self.hparams.data_file
+        data_dir = os.path.dirname(data_file) or "."
+        
+        # Look for train and test files
+        train_files = glob.glob(os.path.join(data_dir, "*train*.csv"))
+        test_files = glob.glob(os.path.join(data_dir, "*test*.csv"))
+        
+        if train_files and test_files:
+            # Separate files already exist, use them
+            self._train_data_file = sorted(train_files)[0]
+            self._test_data_file = sorted(test_files)[0]
+            self._detected_separate_files = True
+            
+            print(f"[SNP DataModule] Auto-detected separate train/test files:")
+            print(f"  Train: {self._train_data_file}")
+            print(f"  Test: {self._test_data_file}")
+            log.info(f"Auto-detected separate train/test files: train={self._train_data_file}, test={self._test_data_file}")
+        else:
+            # No separate files found, create them from single file
+            self._split_single_file_into_train_test(log)
+
+    def _split_single_file_into_train_test(self, log) -> None:
+        """Split a single data file into separate train and test CSV files.
+        
+        Uses train_val_test_split[2] as the test ratio.
+        Saves train and test files to the same directory as the original file.
+        
+        :param log: Logger instance.
+        """
+        import pandas as pd
+        
+        data_file = self.hparams.data_file
+        data_dir = os.path.dirname(data_file) or "."
+        base_name = os.path.splitext(os.path.basename(data_file))[0]
+        
+        # Determine train/test ratio
+        test_ratio = self.hparams.train_val_test_split[2]
+        if test_ratio <= 0 or test_ratio >= 1:
+            # Default to 0.2 if invalid ratio
+            test_ratio = 0.2
+            print(f"[SNP DataModule] Invalid test ratio {self.hparams.train_val_test_split[2]}, using default 0.2")
+            log.warning(f"Invalid test ratio {self.hparams.train_val_test_split[2]}, using default 0.2")
+        
+        print(f"[SNP DataModule] Loading {data_file} to split into train/test...")
+        log.info(f"Loading {data_file} to split into train/test (test_ratio={test_ratio})")
+        
+        # Load the data file
+        header = 0 if self.hparams.has_header else None
+        index_col = 0 if self.hparams.has_index else None
+        
+        df = pd.read_csv(data_file, header=header, index_col=index_col, low_memory=False)
+        
+        # Calculate split sizes
+        total_cols = df.shape[1]
+        test_cols = max(1, int(test_ratio * total_cols))
+        train_cols = total_cols - test_cols
+        
+        # Randomly shuffle column indices and split
+        torch.manual_seed(42)
+        col_indices = torch.randperm(total_cols).tolist()
+        train_col_indices = sorted(col_indices[:train_cols])
+        test_col_indices = sorted(col_indices[train_cols:])
+        
+        # Get column names
+        if self.hparams.has_header:
+            all_cols = list(df.columns)
+            train_cols_names = [all_cols[i] for i in train_col_indices]
+            test_cols_names = [all_cols[i] for i in test_col_indices]
+        else:
+            train_cols_names = train_col_indices
+            test_cols_names = test_col_indices
+        
+        # Split the data
+        df_train = df.iloc[:, train_col_indices]
+        df_test = df.iloc[:, test_col_indices]
+        
+        # Generate output file names
+        train_file = os.path.join(data_dir, f"{base_name}_train.csv")
+        test_file = os.path.join(data_dir, f"{base_name}_test.csv")
+        
+        # Save train and test files
+        print(f"[SNP DataModule] Saving train data to {train_file}...")
+        log.info(f"Saving train data ({df_train.shape[1]} samples) to {train_file}")
+        df_train.to_csv(train_file)
+        
+        print(f"[SNP DataModule] Saving test data to {test_file}...")
+        log.info(f"Saving test data ({df_test.shape[1]} samples) to {test_file}")
+        df_test.to_csv(test_file)
+        
+        print(f"[SNP DataModule] [OK] Split complete: {df_train.shape[1]} train samples, {df_test.shape[1]} test samples")
+        log.info(f"Split complete: {df_train.shape[1]} train samples, {df_test.shape[1]} test samples")
+        
+        # Update internal paths
+        self._train_data_file = train_file
+        self._test_data_file = test_file
+        self._detected_separate_files = True
+        
+        print(f"[SNP DataModule] Auto-created separate train/test files:")
+        print(f"  Train: {train_file}")
+        print(f"  Test: {test_file}")
+        log.info(f"Auto-created separate train/test files: train={train_file}, test={test_file}")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -174,6 +316,10 @@ class DataModule(LightningDataModule):
         - Normalization statistics (mean/std) are computed from training set only
         - Feature selection is performed on training set only
         - Validation and test sets are transformed using training statistics
+        
+        When separate train/test files are detected:
+        - Train file is split into train/val (or k-folds)
+        - Test file is used directly as test set (no split)
 
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
@@ -190,71 +336,210 @@ class DataModule(LightningDataModule):
             import logging
             log = logging.getLogger(__name__)
             
-            # Load raw data (NO preprocessing yet)
-            data, labels = self._load_data()
-            
-            # Store number of features and classes
-            self._num_features = data.shape[1]
-            self._num_classes = len(torch.unique(labels))
-            self._raw_class_counts = self._compute_class_stats(labels)
-            
-            # Create full dataset BEFORE preprocessing to enable proper splitting
-            print("[SNP DataModule] Creating dataset (raw data)...")
-            log.info("Creating dataset (raw data)...")
-            full_dataset = Dataset(data, labels)
-            
-            # SPLIT FIRST (into raw train/val/test with no leakage)
-            if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
-                print(f"[SNP DataModule] Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
-                log.info(f"Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
-                self._setup_kfold(full_dataset)
-                print(f"[SNP DataModule] [OK] K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-                log.info(f"K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            if self._detected_separate_files:
+                # Load separate train and test files
+                self._setup_separate_train_test_files(log)
             else:
-                print("[SNP DataModule] Setting up regular train/val/test split...")
-                log.info("Setting up regular train/val/test split...")
-                self._setup_regular_split(full_dataset)
-                print(f"[SNP DataModule] [OK] Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-                log.info(f"Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-
-            # Store split indices before preprocessing overwrites Subset objects
-            split_indices = {}
-            if isinstance(self.data_train, Subset):
-                split_indices["train_indices"] = list(self.data_train.indices)
-            if isinstance(self.data_val, Subset):
-                split_indices["val_indices"] = list(self.data_val.indices)
-            if isinstance(self.data_test, Subset):
-                split_indices["test_indices"] = list(self.data_test.indices)
-            if self.fold_indices is not None:
-                split_indices["fold_indices"] = [
-                    {"train": train_idx.tolist(), "val": val_idx.tolist()}
-                    for train_idx, val_idx in self.fold_indices
-                ]
-            self._split_indices = split_indices
-            
-            # NOW apply preprocessing (normalization + feature selection) to each split
-            # This ensures no data leakage: mean/std and feature selection computed on train set only
-            print("[SNP DataModule] Applying preprocessing (normalization & feature selection)...")
-            log.info("Applying preprocessing...")
-            self._apply_preprocessing_to_splits()
-            print(f"[SNP DataModule] [OK] Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-            log.info(f"Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
-
-            # Compute split class statistics and export metadata
-            train_labels = self._extract_subset_data(self.data_train)[1]
-            val_labels = self._extract_subset_data(self.data_val)[1]
-            test_labels = self._extract_subset_data(self.data_test)[1]
-            self._split_class_stats = {
-                "train": self._compute_class_stats(train_labels),
-                "val": self._compute_class_stats(val_labels),
-                "test": self._compute_class_stats(test_labels),
-            }
-
-            self._export_dataset_metadata()
-            self._export_preprocessing_metadata()
-            self._export_feature_selection_metadata()
+                # Load single data file and split
+                self._setup_single_file(log)
     
-    def _setup_regular_split(self, full_dataset: Dataset) -> None:
+    def _setup_single_file(self, log) -> None:
+        """Setup with a single data file (backward compatible).
+        
+        :param log: Logger instance.
+        """
+        # Load raw data (NO preprocessing yet)
+        data, labels = self._load_data()
+        
+        # Store number of features and classes
+        self._num_features = data.shape[1]
+        self._num_classes = len(torch.unique(labels))
+        self._raw_class_counts = self._compute_class_stats(labels)
+        
+        # Create full dataset BEFORE preprocessing to enable proper splitting
+        print("[SNP DataModule] Creating dataset (raw data)...")
+        log.info("Creating dataset (raw data)...")
+        full_dataset = Dataset(data, labels)
+        
+        # SPLIT FIRST (into raw train/val/test with no leakage)
+        if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
+            print(f"[SNP DataModule] Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
+            log.info(f"Setting up {self.hparams.num_folds}-fold cross validation (fold {self.hparams.current_fold})...")
+            self._setup_kfold(full_dataset)
+            print(f"[SNP DataModule] [OK] K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            log.info(f"K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+        else:
+            print("[SNP DataModule] Setting up regular train/val/test split...")
+            log.info("Setting up regular train/val/test split...")
+            self._setup_regular_split(full_dataset)
+            print(f"[SNP DataModule] [OK] Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            log.info(f"Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+
+        # Store split indices before preprocessing overwrites Subset objects
+        split_indices = {}
+        if isinstance(self.data_train, Subset):
+            split_indices["train_indices"] = list(self.data_train.indices)
+        if isinstance(self.data_val, Subset):
+            split_indices["val_indices"] = list(self.data_val.indices)
+        if isinstance(self.data_test, Subset):
+            split_indices["test_indices"] = list(self.data_test.indices)
+        if self.fold_indices is not None:
+            split_indices["fold_indices"] = [
+                {"train": train_idx.tolist(), "val": val_idx.tolist()}
+                for train_idx, val_idx in self.fold_indices
+            ]
+        self._split_indices = split_indices
+        
+        # NOW apply preprocessing (normalization + feature selection) to each split
+        # This ensures no data leakage: mean/std and feature selection computed on train set only
+        print("[SNP DataModule] Applying preprocessing (normalization & feature selection)...")
+        log.info("Applying preprocessing...")
+        self._apply_preprocessing_to_splits()
+        print(f"[SNP DataModule] [OK] Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+        log.info(f"Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+
+        # Compute split class statistics and export metadata
+        train_labels = self._extract_subset_data(self.data_train)[1]
+        val_labels = self._extract_subset_data(self.data_val)[1]
+        test_labels = self._extract_subset_data(self.data_test)[1]
+        self._split_class_stats = {
+            "train": self._compute_class_stats(train_labels),
+            "val": self._compute_class_stats(val_labels),
+            "test": self._compute_class_stats(test_labels),
+        }
+
+        self._export_dataset_metadata()
+        self._export_preprocessing_metadata()
+        self._export_feature_selection_metadata()
+
+    def _setup_separate_train_test_files(self, log) -> None:
+        """Setup with separate train and test CSV files.
+        
+        Train file is split into train/val (or k-folds). Test file is used directly as test set.
+        
+        :param log: Logger instance.
+        """
+        # Load train and test data separately
+        print(f"[SNP DataModule] Loading train data from {self._train_data_file}...")
+        log.info(f"Loading train data from {self._train_data_file}...")
+        train_data, train_labels = self._load_data(self._train_data_file)
+        
+        print(f"[SNP DataModule] Loading test data from {self._test_data_file}...")
+        log.info(f"Loading test data from {self._test_data_file}...")
+        test_data, test_labels = self._load_data(self._test_data_file)
+        
+        # Store number of features and classes
+        self._num_features = train_data.shape[1]
+        self._num_classes = len(torch.unique(train_labels))
+        self._raw_class_counts = self._compute_class_stats(train_labels)
+        
+        # Create datasets
+        train_dataset = Dataset(train_data, train_labels)
+        test_dataset = Dataset(test_data, test_labels)
+        
+        # SPLIT TRAIN ONLY (into raw train/val with no leakage)
+        # Test file is used directly as test set
+        if self.hparams.num_folds is not None and self.hparams.num_folds > 1:
+            print(f"[SNP DataModule] Setting up {self.hparams.num_folds}-fold cross validation on train set (fold {self.hparams.current_fold})...")
+            log.info(f"Setting up {self.hparams.num_folds}-fold cross validation on train set (fold {self.hparams.current_fold})...")
+            self._setup_kfold_on_train_set(train_dataset, test_dataset)
+            print(f"[SNP DataModule] [OK] K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            log.info(f"K-fold setup complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+        else:
+            print("[SNP DataModule] Setting up train/val split (using train file only)...")
+            log.info("Setting up train/val split on train set...")
+            self._setup_train_val_split(train_dataset, test_dataset)
+            print(f"[SNP DataModule] [OK] Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+            log.info(f"Split complete (before preprocessing). Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+
+        # Store split indices
+        split_indices = {}
+        if isinstance(self.data_train, Subset):
+            split_indices["train_indices"] = list(self.data_train.indices)
+        if isinstance(self.data_val, Subset):
+            split_indices["val_indices"] = list(self.data_val.indices)
+        self._split_indices = split_indices
+        
+        # NOW apply preprocessing (normalization + feature selection) to each split
+        # This ensures no data leakage: mean/std and feature selection computed on train set only
+        print("[SNP DataModule] Applying preprocessing (normalization & feature selection)...")
+        log.info("Applying preprocessing...")
+        self._apply_preprocessing_to_splits()
+        print(f"[SNP DataModule] [OK] Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+        log.info(f"Preprocessing complete. Train: {len(self.data_train)}, Val: {len(self.data_val)}, Test: {len(self.data_test)}")
+
+        # Compute split class statistics and export metadata
+        train_labels = self._extract_subset_data(self.data_train)[1]
+        val_labels = self._extract_subset_data(self.data_val)[1]
+        test_labels = self._extract_subset_data(self.data_test)[1]
+        self._split_class_stats = {
+            "train": self._compute_class_stats(train_labels),
+            "val": self._compute_class_stats(val_labels),
+            "test": self._compute_class_stats(test_labels),
+        }
+
+        self._export_dataset_metadata()
+        self._export_preprocessing_metadata()
+        self._export_feature_selection_metadata()
+
+    def _setup_train_val_split(self, train_dataset: Dataset, test_dataset: Dataset) -> None:
+        """Setup regular train/val split using only train dataset, and use test dataset directly.
+        
+        :param train_dataset: The train dataset to split into train/val.
+        :param test_dataset: The test dataset (used directly, not split).
+        """
+        # Calculate train/val split sizes using first two split ratios
+        total_size = len(train_dataset)
+        train_size = int((self.hparams.train_val_test_split[0] / (self.hparams.train_val_test_split[0] + self.hparams.train_val_test_split[1])) * total_size)
+        val_size = total_size - train_size
+        
+        # Split train dataset into train/val
+        self.data_train, self.data_val = random_split(
+            dataset=train_dataset,
+            lengths=[train_size, val_size],
+            generator=torch.Generator().manual_seed(42),
+        )
+        
+        # Use test dataset directly as test set
+        self.data_test = test_dataset
+
+    def _setup_kfold_on_train_set(self, train_dataset: Dataset, test_dataset: Dataset) -> None:
+        """Setup k-fold cross validation on train dataset, with separate test dataset.
+        
+        :param train_dataset: The train dataset for k-fold splitting.
+        :param test_dataset: The test dataset (used directly, not split).
+        """
+        # Initialize k-fold splitter on train dataset
+        self.kfold = KFold(n_splits=self.hparams.num_folds, shuffle=True, random_state=42)
+        
+        # Generate all fold indices for train dataset
+        self.fold_indices = list(self.kfold.split(range(len(train_dataset))))
+        
+        # Setup current fold
+        self._apply_fold_on_train_set(train_dataset, test_dataset, self.hparams.current_fold)
+
+    def _apply_fold_on_train_set(self, train_dataset: Dataset, test_dataset: Dataset, fold_idx: int) -> None:
+        """Apply a specific fold to create train/val split on train dataset.
+        
+        :param train_dataset: The train dataset.
+        :param test_dataset: The test dataset (used directly).
+        :param fold_idx: Index of the fold to apply (0 to num_folds-1).
+        """
+        if self.fold_indices is None:
+            raise RuntimeError("K-Fold indices not initialized. Call _setup_kfold_on_train_set() first.")
+        
+        if fold_idx >= self.hparams.num_folds:
+            raise ValueError(f"Fold index {fold_idx} is out of range (0 to {self.hparams.num_folds - 1})")
+        
+        # Get train and val indices for this fold
+        train_idx, val_idx = self.fold_indices[fold_idx]
+        
+        # Create subsets for train and val
+        self.data_train = Subset(train_dataset, train_idx.tolist())
+        self.data_val = Subset(train_dataset, val_idx.tolist())
+        self.data_test = test_dataset
+    
+
         """Setup regular train/val/test split.
         
         :param full_dataset: The full dataset to split.
@@ -387,14 +672,19 @@ class DataModule(LightningDataModule):
         :return: Tuple of (data_tensor, labels_tensor)
         """
         if isinstance(subset, Subset):
-            # Get the underlying dataset and indices
+            # Unwrap nested Subset objects to reach the base Dataset.
             dataset = subset.dataset
-            indices = subset.indices
-            
+            indices = list(subset.indices)
+
+            while isinstance(dataset, Subset):
+                # Map indices through each subset level to base dataset indices.
+                indices = [dataset.indices[i] for i in indices]
+                dataset = dataset.dataset
+
             # Extract data for these indices
             all_data = dataset.data
             all_labels = dataset.labels
-            
+
             data = all_data[indices]
             labels = all_labels[indices]
         else:
@@ -464,16 +754,20 @@ class DataModule(LightningDataModule):
         
         return selected_data, selected_indices, scores
 
-    def _load_data(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _load_data(self, data_file: Optional[str] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Load SNP data from CSV file.
 
+        :param data_file: Optional path to CSV file. If None, uses self.hparams.data_file.
         :return: Tuple of (data_tensor, labels_tensor).
         """
         import logging
         log = logging.getLogger(__name__)
         
-        print(f"[SNP DataModule] Loading SNP data from {self.hparams.data_file}...")
-        log.info(f"Loading SNP data from {self.hparams.data_file}...")
+        if data_file is None:
+            data_file = self.hparams.data_file
+        
+        print(f"[SNP DataModule] Loading SNP data from {data_file}...")
+        log.info(f"Loading SNP data from {data_file}...")
         
         # Determine header and index parameters
         header = 0 if self.hparams.has_header else None
@@ -484,7 +778,7 @@ class DataModule(LightningDataModule):
         print("[SNP DataModule] Reading CSV file (this may take a while for large datasets)...")
         log.info("Reading CSV file (this may take a while for large datasets)...")
         df = pd.read_csv(
-            self.hparams.data_file, 
+            data_file, 
             header=header, 
             index_col=index_col,
             low_memory=False

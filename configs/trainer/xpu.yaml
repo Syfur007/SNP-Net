@@ -2,4 +2,5 @@
   - default
 
 accelerator: xpu
-devices: auto
+devices: 1
+strategy: auto
