@@ -140,7 +140,7 @@ simplejson==3.20.2
 six==1.17.0
 slicer==0.0.8
 smmap==5.0.2
-SQLAlchemy==2.0.44
+SQLAlchemy==2.0.48
 stack-data==0.6.3
 stevedore==5.5.0
 sympy==1.14.0
