@@ -81,7 +81,7 @@ multidict==6.7.0
 nest-asyncio==1.6.0
 networkx==3.6
 nodeenv==1.9.1
-numba==0.62.1
+numba==0.64.0
 numpy==1.26.4
 omegaconf==2.3.0
 oneccl==2021.15.2
